@@ -57,7 +57,7 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({
+const upload = multer({ 
   storage: storage,
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['.xlsx', '.xls', '.csv'];
@@ -74,7 +74,7 @@ const upload = multer({
 function extractQRData(qrLink) {
   try {
     if (!qrLink) return null;
-
+    
     // Extract data parameter from QR URL
     const dataParam = qrLink.split('data=')[1];
     if (dataParam) {
@@ -107,17 +107,17 @@ app.post('/api/import-students', upload.single('studentFile'), async (req, res) 
     console.log('Sample data row:', data[0]);
 
     const students = [];
-
+    
     for (const row of data) {
       console.log('Processing row:', row);
-
+      
       // Handle your specific Excel format
       const rollNumber = row['Roll number'] || row.rollNumber || row.userId || row.UserId;
       const name = row.Name || row.name || row.student_name || row['Student Name'];
       const mobile = row.Mobile || row.mobile || row.phone || row.Phone || '';
       const qrLink = row['Qr link'] || row.qrLink || row.qr_link || '';
       const serialNumber = row['S.N'] || row.sn || row.serialNumber || 0;
-
+      
       const student = {
         userId: rollNumber ? rollNumber.toString() : '',
         name: name || '',
@@ -157,11 +157,11 @@ app.post('/api/import-students', upload.single('studentFile'), async (req, res) 
 
     const successfulInserts = result.filter(r => r !== null);
 
-    res.json({
-      message: 'Students imported successfully',
+    res.json({ 
+      message: 'Students imported successfully', 
       count: successfulInserts.length,
       total: students.length,
-      students: successfulInserts
+      students: successfulInserts 
     });
 
   } catch (error) {
@@ -185,9 +185,9 @@ app.post('/api/attendance/scan', async (req, res) => {
   try {
     const { userId, qrData } = req.body;
     let studentUserId = userId;
-
+    
     console.log('Scan request:', { userId, qrData });
-
+    
     // If QR data is provided (JSON format), extract roll number
     if (qrData && typeof qrData === 'string') {
       try {
@@ -200,7 +200,7 @@ app.post('/api/attendance/scan', async (req, res) => {
         console.log('Could not parse QR data, using userId as is');
       }
     }
-
+    
     if (!studentUserId) {
       return res.status(400).json({ error: 'User ID is required' });
     }
@@ -208,7 +208,7 @@ app.post('/api/attendance/scan', async (req, res) => {
     // Check if student exists (by userId which is roll number)
     const student = await Student.findOne({ userId: studentUserId.toString() });
     if (!student) {
-      return res.status(404).json({
+      return res.status(404).json({ 
         error: 'Student not found with roll number: ' + studentUserId,
         searchedId: studentUserId
       });
@@ -218,9 +218,9 @@ app.post('/api/attendance/scan', async (req, res) => {
     const now = new Date();
 
     // Check if student already has attendance for today
-    const existingAttendance = await Attendance.findOne({
-      userId: studentUserId.toString(),
-      date: today
+    const existingAttendance = await Attendance.findOne({ 
+      userId: studentUserId.toString(), 
+      date: today 
     }).sort({ createdAt: -1 });
 
     if (!existingAttendance) {
@@ -234,10 +234,10 @@ app.post('/api/attendance/scan', async (req, res) => {
       });
 
       await attendance.save();
-
+      
       console.log('Check-in successful for:', student.name);
-
-      res.json({
+      
+      res.json({ 
         message: 'Check-in successful',
         action: 'check-in',
         student: student.name,
@@ -259,7 +259,7 @@ app.post('/api/attendance/scan', async (req, res) => {
 
         console.log('Check-out successful for:', student.name);
 
-        res.json({
+        res.json({ 
           message: 'Check-out successful',
           action: 'check-out',
           student: student.name,
@@ -270,7 +270,7 @@ app.post('/api/attendance/scan', async (req, res) => {
         });
       } else {
         const remainingTime = 30 - Math.round(timeDifference);
-        res.status(400).json({
+        res.status(400).json({ 
           error: `Cannot check-out yet. Please wait ${remainingTime} more minutes.`,
           remainingTime,
           student: student.name,
@@ -278,8 +278,8 @@ app.post('/api/attendance/scan', async (req, res) => {
         });
       }
     } else {
-      res.status(400).json({
-        error: 'Already checked out for today',
+      res.status(400).json({ 
+        error: 'Already checked out for today', 
         student: student.name,
         rollNumber: student.rollNumber
       });
@@ -295,11 +295,11 @@ app.post('/api/attendance/scan', async (req, res) => {
 app.get('/api/attendance/stats', async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
-
+    
     const totalStudents = await Student.countDocuments();
     const presentToday = await Attendance.countDocuments({ date: today });
     const absentToday = totalStudents - presentToday;
-
+    
     // Get checked in vs checked out
     const checkedIn = await Attendance.countDocuments({ date: today, status: 'checked-in' });
     const checkedOut = await Attendance.countDocuments({ date: today, status: 'checked-out' });
@@ -323,7 +323,7 @@ app.get('/api/attendance', async (req, res) => {
   try {
     const { date, userId, limit = 100 } = req.query;
     let filter = {};
-
+    
     if (date) filter.date = date;
     if (userId) filter.userId = userId.toString();
 
@@ -344,12 +344,12 @@ app.get('/api/student/:userId', async (req, res) => {
     if (!student) {
       return res.status(404).json({ error: 'Student not found' });
     }
-
+    
     // Also get recent attendance
     const recentAttendance = await Attendance.find({ userId: req.params.userId.toString() })
       .sort({ date: -1 })
       .limit(10);
-
+    
     res.json({
       ...student.toObject(),
       recentAttendance
@@ -364,7 +364,7 @@ app.get('/api/attendance/report', async (req, res) => {
   try {
     const { startDate, endDate, userId } = req.query;
     let filter = {};
-
+    
     if (startDate && endDate) {
       filter.date = { $gte: startDate, $lte: endDate };
     } else if (startDate) {
@@ -372,18 +372,18 @@ app.get('/api/attendance/report', async (req, res) => {
     } else if (endDate) {
       filter.date = { $lte: endDate };
     }
-
+    
     if (userId) filter.userId = userId.toString();
-
+    
     const attendance = await Attendance.find(filter).sort({ date: -1, createdAt: -1 });
-
+    
     res.json(attendance);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.get('api/attendance/range', async (req, res) => {
+app.get(['/attendance/range'], async (req, res) => {
   try {
     const { start, end } = req.query;
 
@@ -420,10 +420,10 @@ app.delete('/api/student/:userId', async (req, res) => {
     if (!student) {
       return res.status(404).json({ error: 'Student not found' });
     }
-
+    
     // Also delete attendance records
     await Attendance.deleteMany({ userId: req.params.userId.toString() });
-
+    
     res.json({ message: 'Student and attendance records deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -432,8 +432,8 @@ app.delete('/api/student/:userId', async (req, res) => {
 
 // 9. Health check
 app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'OK',
+  res.json({ 
+    status: 'OK', 
     message: 'Student Attendance API is running',
     timestamp: new Date().toISOString()
   });

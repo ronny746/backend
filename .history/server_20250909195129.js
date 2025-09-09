@@ -383,7 +383,7 @@ app.get('/api/attendance/report', async (req, res) => {
   }
 });
 
-app.get('api/attendance/range', async (req, res) => {
+app.get('/attendance/range', async (req, res) => {
   try {
     const { start, end } = req.query;
 
