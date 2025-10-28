@@ -481,31 +481,26 @@ app.get('/api/attendance/stats', async (req, res) => {
     const today = new Date().toISOString().split('T')[0];
 
     const totalStudents = await Student.countDocuments();
-    // presentToday: count of attendance records for today (each check-in record counts)
     const presentToday = await Attendance.countDocuments({ date: today });
-
-    // holidays: check if today is a holiday
-    const holidayToday = await Holiday.findOne({ date: today });
+    const absentToday = totalStudents - presentToday;
 
     const checkedIn = await Attendance.countDocuments({ date: today, status: 'checked-in' });
     const checkedOut = await Attendance.countDocuments({ date: today, status: 'checked-out' });
 
+    // Get scan type statistics
     const qrScans = await Attendance.countDocuments({ date: today, scanType: 'qr' });
     const rfidScans = await Attendance.countDocuments({ date: today, scanType: 'rfid' });
 
-    // Note: attendancePercentage is naive (presentToday / totalStudents). 
-    // If you want to exclude today's holiday from denominators, adjust accordingly.
     res.json({
       totalStudents,
       presentToday,
-      absentToday: totalStudents - presentToday,
+      absentToday,
       checkedIn,
       checkedOut,
       qrScans,
       rfidScans,
       attendancePercentage: totalStudents > 0 ? ((presentToday / totalStudents) * 100).toFixed(1) : 0,
-      date: today,
-      holidayToday: holidayToday ? { date: holidayToday.date, name: holidayToday.name, reason: holidayToday.reason } : null
+      date: today
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -531,7 +526,7 @@ app.get('/api/attendance', async (req, res) => {
   }
 });
 
-// Updated attendance/range endpoint (replace your current /api/attendance/range)
+// 7. Get attendance data for date range (for Flutter calendar/register)
 app.get('/api/attendance/range', async (req, res) => {
   try {
     const { start, end } = req.query;
@@ -552,44 +547,25 @@ app.get('/api/attendance/range', async (req, res) => {
       }
     }).sort({ date: 1, createdAt: 1 });
 
-    // Fetch holidays in range
-    const holidays = await Holiday.find({
-      date: { $gte: start, $lte: end }
-    }).sort({ date: 1 });
+    const formattedData = attendanceRecords.map(record => ({
+      userId: record.userId,
+      date: record.date,
+      status: record.status,
+      studentName: record.studentName,
+      scanType: record.scanType || 'qr',
+      checkInTime: formatTimeForFlutter(record.checkInTime),
+      checkOutTime: record.checkOutTime ? formatTimeForFlutter(record.checkOutTime) : null
+    }));
 
-    // Create a quick lookup
-    const holidayMap = {};
-    holidays.forEach(h => { holidayMap[h.date] = { name: h.name, reason: h.reason }; });
+    console.log(`Found ${formattedData.length} attendance records`);
 
-    const formattedData = attendanceRecords.map(record => {
-      const isHoliday = Boolean(holidayMap[record.date]);
-      return {
-        userId: record.userId,
-        date: record.date,
-        status: record.status,
-        studentName: record.studentName,
-        scanType: record.scanType || 'qr',
-        checkInTime: formatTimeForFlutter(record.checkInTime),
-        checkOutTime: record.checkOutTime ? formatTimeForFlutter(record.checkOutTime) : null,
-        isHoliday,
-        holiday: isHoliday ? { date: record.date, ...holidayMap[record.date] } : null
-      };
-    });
-
-    console.log(`Found ${formattedData.length} attendance records, holidays: ${holidays.length}`);
-
-    // Return both attendance entries and holidays list (so UI can mark days without attendance too)
-    res.json({
-      attendance: formattedData,
-      holidays: holidays.map(h => ({ date: h.date, name: h.name, reason: h.reason }))
-    });
+    res.json(formattedData);
 
   } catch (error) {
     console.error('Attendance range fetch error:', error);
     res.status(500).json({ error: error.message });
   }
 });
-
 
 // 8. Get student details by userId or RFID - UPDATED
 app.get('/api/student/:identifier', async (req, res) => {

@@ -531,7 +531,7 @@ app.get('/api/attendance', async (req, res) => {
   }
 });
 
-// Updated attendance/range endpoint (replace your current /api/attendance/range)
+// 7. Get attendance data for date range (for Flutter calendar/register)
 app.get('/api/attendance/range', async (req, res) => {
   try {
     const { start, end } = req.query;
@@ -552,44 +552,25 @@ app.get('/api/attendance/range', async (req, res) => {
       }
     }).sort({ date: 1, createdAt: 1 });
 
-    // Fetch holidays in range
-    const holidays = await Holiday.find({
-      date: { $gte: start, $lte: end }
-    }).sort({ date: 1 });
+    const formattedData = attendanceRecords.map(record => ({
+      userId: record.userId,
+      date: record.date,
+      status: record.status,
+      studentName: record.studentName,
+      scanType: record.scanType || 'qr',
+      checkInTime: formatTimeForFlutter(record.checkInTime),
+      checkOutTime: record.checkOutTime ? formatTimeForFlutter(record.checkOutTime) : null
+    }));
 
-    // Create a quick lookup
-    const holidayMap = {};
-    holidays.forEach(h => { holidayMap[h.date] = { name: h.name, reason: h.reason }; });
+    console.log(`Found ${formattedData.length} attendance records`);
 
-    const formattedData = attendanceRecords.map(record => {
-      const isHoliday = Boolean(holidayMap[record.date]);
-      return {
-        userId: record.userId,
-        date: record.date,
-        status: record.status,
-        studentName: record.studentName,
-        scanType: record.scanType || 'qr',
-        checkInTime: formatTimeForFlutter(record.checkInTime),
-        checkOutTime: record.checkOutTime ? formatTimeForFlutter(record.checkOutTime) : null,
-        isHoliday,
-        holiday: isHoliday ? { date: record.date, ...holidayMap[record.date] } : null
-      };
-    });
-
-    console.log(`Found ${formattedData.length} attendance records, holidays: ${holidays.length}`);
-
-    // Return both attendance entries and holidays list (so UI can mark days without attendance too)
-    res.json({
-      attendance: formattedData,
-      holidays: holidays.map(h => ({ date: h.date, name: h.name, reason: h.reason }))
-    });
+    res.json(formattedData);
 
   } catch (error) {
     console.error('Attendance range fetch error:', error);
     res.status(500).json({ error: error.message });
   }
 });
-
 
 // 8. Get student details by userId or RFID - UPDATED
 app.get('/api/student/:identifier', async (req, res) => {
