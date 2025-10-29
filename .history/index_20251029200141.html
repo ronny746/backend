@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Attendance System</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        .lucide { width: 24px; height: 24px; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        const { Camera, Upload, Users, Calendar, TrendingUp, Clock, QrCode, Wifi, FileDown, Plus, Search, Edit, Trash2, CheckCircle, XCircle, AlertCircle, Menu, X } = lucide;
+
+        const API_BASE_URL = 'http://localhost:5300/api';
+
+        // Utility function for API calls
+        const apiCall = async (endpoint, options = {}) => {
+            try {
+                const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'API request failed');
+                return data;
+            } catch (error) {
+                console.error('API Error:', error);
+                throw error;
+            }
+        };
+
+        // Icon Component Wrapper
+        const Icon = ({ name, className = "w-6 h-6", ...props }) => {
+            useEffect(() => {
+                lucide.createIcons();
+            }, []);
+            return React.createElement('i', { 
+                'data-lucide': name, 
+                className,
+                ...props 
+            });
+        };
+
+        // Dashboard Component
+        const Dashboard = ({ onNavigate }) => {
+            const [stats, setStats] = useState({
+                totalStudents: 0,
+                presentToday: 0,
+                absentToday: 0,
+                checkedIn: 0,
+                checkedOut: 0,
+                qrScans: 0,
+                rfidScans: 0,
+                attendancePercentage: 0,
+                date: '',
+                holidayToday: null
+            });
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                fetchStats();
+            }, []);
+
+            const fetchStats = async () => {
+                try {
+                    const data = await apiCall('/attendance/stats');
+                    setStats(data);
+                } catch (error) {
+                    console.error('Failed to fetch stats:', error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            if (loading) {
+                return (
+                    <div className="flex items-center justify-center h-screen">
+                        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-blue-500"></div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="space-y-6">
+                    {/* Header */}
+                    <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-8 text-white shadow-xl">
+                        <h1 className="text-4xl font-bold mb-2">Attendance Dashboard</h1>
+                        <p className="text-blue-100">Real-time attendance monitoring with QR & RFID support</p>
+                        <p className="text-sm text-blue-200 mt-2">Date: {new Date().toLocaleDateString()}</p>
+                        {stats.holidayToday && (
+                            <div className="mt-4 bg-yellow-500 bg-opacity-20 border border-yellow-300 rounded-lg p-3">
+                                <p className="font-semibold">🎉 Holiday: {stats.holidayToday.name}</p>
+                                {stats.holidayToday.reason && <p className="text-sm">{stats.holidayToday.reason}</p>}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Stats Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <StatCard
+                            icon="users"
+                            title="Total Students"
+                            value={stats.totalStudents}
+                            color="bg-blue-500"
+                        />
+                        <StatCard
+                            icon="check-circle"
+                            title="Present Today"
+                            value={stats.presentToday}
+                            color="bg-green-500"
+                            subtitle={`${stats.attendancePercentage}%`}
+                        />
+                        <StatCard
+                            icon="x-circle"
+                            title="Absent Today"
+                            value={stats.absentToday}
+                            color="bg-red-500"
+                        />
+                        <StatCard
+                            icon="clock"
+                            title="Checked In"
+                            value={stats.checkedIn}
+                            color="bg-purple-500"
+                            subtitle={`Out: ${stats.checkedOut}`}
+                        />
+                    </div>
+
+                    {/* Scan Types */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="bg-white rounded-xl p-6 shadow-lg border border-gray-200">
+                            <div className="flex items-center space-x-4">
+                                <div className="bg-indigo-100 p-4 rounded-lg">
+                                    <Icon name="qr-code" className="w-8 h-8 text-indigo-600" />
+                                </div>
+                                <div>
+                                    <p className="text-gray-600 text-sm">QR Code Scans</p>
+                                    <p className="text-3xl font-bold text-gray-900">{stats.qrScans}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="bg-white rounded-xl p-6 shadow-lg border border-gray-200">
+                            <div className="flex items-center space-x-4">
+                                <div className="bg-cyan-100 p-4 rounded-lg">
+                                    <Icon name="wifi" className="w-8 h-8 text-cyan-600" />
+                                </div>
+                                <div>
+                                    <p className="text-gray-600 text-sm">RFID Card Scans</p>
+                                    <p className="text-3xl font-bold text-gray-900">{stats.rfidScans}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Quick Actions */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <ActionButton
+                            icon="camera"
+                            text="QR Scanner"
+                            onClick={() => onNavigate('scanner')}
+                            color="bg-gradient-to-r from-blue-500 to-blue-600"
+                        />
+                        <ActionButton
+                            icon="wifi"
+                            text="RFID Scanner"
+                            onClick={() => onNavigate('rfid')}
+                            color="bg-gradient-to-r from-cyan-500 to-cyan-600"
+                        />
+                        <ActionButton
+                            icon="users"
+                            text="View Students"
+                            onClick={() => onNavigate('students')}
+                            color="bg-gradient-to-r from-purple-500 to-purple-600"
+                        />
+                    </div>
+                </div>
+            );
+        };
+
+        // StatCard Component
+        const StatCard = ({ icon, title, value, color, subtitle }) => {
+            useEffect(() => {
+                lucide.createIcons();
+            }, []);
+
+            return (
+                <div className="bg-white rounded-xl p-6 shadow-lg border border-gray-200 hover:shadow-xl transition-all">
+                    <div className="flex items-center justify-between mb-4">
+                        <div className={`${color} p-3 rounded-lg text-white`}>
+                            <Icon name={icon} className="w-8 h-8" />
+                        </div>
+                    </div>
+                    <h3 className="text-gray-600 text-sm font-medium mb-1">{title}</h3>
+                    <p className="text-3xl font-bold text-gray-900">{value}</p>
+                    {subtitle && <p className="text-sm text-gray-500 mt-1">{subtitle}</p>}
+                </div>
+            );
+        };
+
+        // ActionButton Component
+        const ActionButton = ({ icon, text, onClick, color }) => {
+            useEffect(() => {
+                lucide.createIcons();
+            }, []);
+
+            return (
+                <button
+                    onClick={onClick}
+                    className={`${color} hover:opacity-90 text-white rounded-xl p-6 shadow-lg hover:shadow-xl transition-all flex items-center justify-center space-x-3`}
+                >
+                    <Icon name={icon} className="w-6 h-6" />
+                    <span className="font-semibold text-lg">{text}</span>
+                </button>
+            );
+        };
+
+        // Students Management Component
+        const Students = () => {
+            const [students, setStudents] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [searchTerm, setSearchTerm] = useState('');
+            const [showAddModal, setShowAddModal] = useState(false);
+            const [showImportModal, setShowImportModal] = useState(false);
+
+            useEffect(() => {
+                fetchStudents();
+            }, []);
+
+            useEffect(() => {
+                lucide.createIcons();
+            });
+
+            const fetchStudents = async () => {
+                try {
+                    const data = await apiCall('/students');
+                    setStudents(data);
+                } catch (error) {
+                    alert('Failed to fetch students');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const filteredStudents = students.filter(s =>
+                s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                s.rollNumber.includes(searchTerm) ||
+                (s.rfidNumber && s.rfidNumber.includes(searchTerm))
+            );
+
+            return (
+                <div className="space-y-6">
+                    {/* Header */}
+                    <div className="bg-white rounded-xl p-6 shadow-lg border border-gray-200">
+                        <div className="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
+                            <div>
+                                <h2 className="text-3xl font-bold text-gray-900">Students</h2>
+                                <p className="text-gray-600 mt-1">Manage student records</p>
+                            </div>
+                            <div className="flex space-x-3">
+                                <button
+                                    onClick={() => setShowImportModal(true)}
+                                    className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-lg flex items-center space-x-2 transition-all"
+                                >
+                                    <Icon name="upload" className="w-5 h-5" />
+                                    <span>Import Excel</span>
+                                </button>
+                                <button
+                                    onClick={() => setShowAddModal(true)}
+                                    className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-lg flex items-center space-x-2 transition-all"
+                                >
+                                    <Icon name="plus" className="w-5 h-5" />
+                                    <span>Add Student</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Search Bar */}
+                        <div className="mt-6 relative">
+                            <Icon name="search" className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                            <input
+                                type="text"
+                                placeholder="Search by name, roll number, or RFID..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
+                        </div>
+                    </div>
+
+                    {/* Students List */}
+                    {loading ? (
+                        <div className="flex justify-center p-12">
+                            <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-blue-500"></div>
+                        </div>
+                    ) : (
+                        <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+                            <div className="overflow-x-auto">
+                                <table className="w-full">
+                                    <thead className="bg-gray-50 border-b border-gray-200">
+                                        <tr>
+                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">S.N</th>
+                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Name</th>
+                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Roll No</th>
+                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">RFID</th>
+                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Class</th>
+                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Contact</th>
+                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-200">
+                                        {filteredStudents.map((student, index) => (
+                                            <tr key={student.userId} className="hover:bg-gray-50 transition-colors">
+                                                <td className="px-6 py-4 text-sm text-gray-900">{index + 1}</td>
+                                                <td className="px-6 py-4">
+                                                    <div className="flex items-center">
+                                                        <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white font-semibold mr-3">
+                                                            {student.name.charAt(0).toUpperCase()}
+                                                        </div>
+                                                        <span className="text-sm font-medium text-gray-900">{student.name}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 text-sm text-gray-900">{student.rollNumber}</td>
+                                                <td className="px-6 py-4">
+                                                    <span className={`text-sm ${student.rfidNumber ? 'text-green-600 font-medium' : 'text-gray-400'}`}>
+                                                        {student.rfidNumber || 'Not assigned'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 text-sm text-gray-900">{student.class}</td>
+                                                <td className="px-6 py-4 text-sm text-gray-600">{student.phone || 'N/A'}</td>
+                                                <td className="px-6 py-4">
+                                                    <div className="flex space-x-2">
+                                                        <button className="text-blue-600 hover:text-blue-800 p-2 hover:bg-blue-50 rounded transition-all">
+                                                            <Icon name="edit" className="w-4 h-4" />
+                                                        </button>
+                                                        <button className="text-red-600 hover:text-red-800 p-2 hover:bg-red-50 rounded transition-all">
+                                                            <Icon name="trash-2" className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Modals */}
+                    {showAddModal && <AddStudentModal onClose={() => setShowAddModal(false)} onSuccess={fetchStudents} />}
+                    {showImportModal && <ImportModal onClose={() => setShowImportModal(false)} onSuccess={fetchStudents} />}
+                </div>
+            );
+        };
+
+        // Add Student Modal
+        const AddStudentModal = ({ onClose, onSuccess }) => {
+            const [formData, setFormData] = useState({
+                name: '',
+                rollNumber: '',
+                rfidNumber: '',
+                class: '',
+                phone: '',
+                email: ''
+            });
+            const [loading, setLoading] = useState(false);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                try {
+                    await apiCall('/students', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(formData)
+                    });
+                    alert('Student added successfully!');
+                    onSuccess();
+                    onClose();
+                } catch (error) {
+                    alert('Failed to add student: ' + error.message);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl">
+                        <h3 className="text-2xl font-bold text-gray-900 mb-4">Add New Student</h3>
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <input
+                                type="text"
+                                placeholder="Student Name *"
+                                value={formData.name}
+                                onChange={(e) => setFormData({...formData, name: e.target.value})}
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                required
+                            />
+                            <input
+                                type="text"
+                                placeholder="Roll Number *"
+                                value={formData.rollNumber}
+                                onChange={(e) => setFormData({...formData, rollNumber: e.target.value})}
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                required
+                            />
+                            <input
+                                type="text"
+                                placeholder="RFID Number (optional)"
+                                value={formData.rfidNumber}
+                                onChange={(e) => setFormData({...formData, rfidNumber: e.target.value})}
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            />
+                            <input
+                                type="text"
+                                placeholder="Class"
+                                value={formData.class}
+                                onChange={(e) => setFormData({...formData, class: e.target.value})}
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            />
+                            <input
+                                type="tel"
+                                placeholder="Phone"
+                                value={formData.phone}
+                                onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            />
+                            <input
+                                type="email"
+                                placeholder="Email"
+                                value={formData.email}
+                                onChange={(e) => setFormData({...formData, email: e.target.value})}
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            />
+                            <div className="flex space-x-3 pt-4">
+                                <button
+                                    type="button"
+                                    onClick={onClose}
+                                    className="flex-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={loading}
+                                    className="flex-1 px-4 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg disabled:opacity-50 transition-all"
+                                >
+                                    {loading ? 'Adding...' : 'Add Student'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        // Import Modal
+        const ImportModal = ({ onClose, onSuccess }) => {
+            const [file, setFile] = useState(null);
+            const [loading, setLoading] = useState(false);
+
+            useEffect(() => {
+                lucide.createIcons();
+            });
+
+            const handleImport = async () => {
+                if (!file) {
+                    alert('Please select a file');
+                    return;
+                }
+
+                setLoading(true);
+                const formData = new FormData();
+                formData.append('studentFile', file);
+
+                try {
+                    const response = await fetch(`${API_BASE_URL}/import-students`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await response.json();
+                    
+                    if (response.ok) {
+                        alert(`Successfully imported ${data.count} students!`);
+                        onSuccess();
+                        onClose();
+                    } else {
+                        throw new Error(data.error);
+                    }
+                } catch (error) {
+                    alert('Failed to import: ' + error.message);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl">
+                        <h3 className="text-2xl font-bold text-gray-900 mb-4">Import Students</h3>
+                        <div className="space-y-4">
+                            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+                                <Icon name="upload" className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                                <input
+                                    type="file"
+                                    accept=".xlsx,.xls,.csv"
+                                    onChange={(e) => setFile(e.target.files[0])}
+                                    className="hidden"
+                                    id="file-upload"
+                                />
+                                <label htmlFor="file-upload" className="cursor-pointer text-blue-500 hover:text-blue-600 font-medium">
+                                    Choose Excel/CSV file
+                                </label>
+                                {file && <p className="text-sm text-gray-600 mt-2">{file.name}</p>}
+                            </div>
+                            <div className="flex space-x-3">
+                                <button
+                                    onClick={onClose}
+                                    className="flex-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleImport}
+                                    disabled={loading || !file}
+                                    className="flex-1 px-4 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg disabled:opacity-50 transition-all"
+                                >
+                                    {loading ? 'Importing...' : 'Import'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Scanner Component
+        const Scanner = ({ type = 'qr' }) => {
+            const [scanInput, setScanInput] = useState('');
+            const [result, setResult] = useState(null);
+            const [loading, setLoading] = useState(false);
+
+            useEffect(() => {
+                lucide.createIcons();
+            });
+
+            const handleScan = async () => {
+                if (!scanInput.trim()) {
+                    alert('Please enter a value to scan');
+                    return;
+                }
+
+                setLoading(true);
+                try {
+                    const data = await apiCall('/attendance/scan', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            userId: scanInput,
+                            qrData: type === 'qr' ? scanInput : undefined
+                        })
+                    });
+                    setResult(data);
+                    setScanInput('');
+                } catch (error) {
+                    setResult({ error: error.message });
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="bg-gradient-to-r from-purple-600 to-indigo-700 rounded-2xl p-8 text-white shadow-xl">
+                        <div className="flex items-center space-x-4">
+                            <Icon name={type === 'qr' ? 'qr-code' : 'wifi'} className="w-12 h-12" />
+                            <div>
+                                <h2 className="text-3xl font-bold">{type === 'qr' ? 'QR Code' : 'RFID'} Scanner</h2>
+                                <p className="text-purple-100">Scan to mark attendance</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-xl p-8 shadow-lg border border-gray-200">
+                        <div className="max-w-md mx-auto space-y-6">
+                            <div className="text-center">
+                                <div className={`w-32 h-32 mx-auto rounded-full ${type === 'qr' ? 'bg-indigo-100' : 'bg-cyan-100'} flex items-center justify-center mb-6`}>
+                                    <Icon name={type === 'qr' ? 'qr-code' : 'wifi'} className={`w-16 h-16 ${type === 'qr' ? 'text-indigo-600' : 'text-cyan-600'}`} />
+                                </div>
+                                <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                                    {type === 'qr' ? 'Scan QR Code' : 'Tap RFID Card'}
+                                </h3>
+                                <p className="text-gray-600">
+                                    {type === 'qr' ? 'Enter roll number or scan QR code' : 'Enter RFID number or tap card'}
+                                </p>
+                            </div>
+
+                            <div className="space-y-4">
+                                <input
+                                    type="text"
+                                    placeholder={type === 'qr' ? "Enter Roll Number or QR Data" : "Enter RFID Number"}
+                                    value={scanInput}
+                                    onChange={(e) => setScanInput(e.target.value)}
+                                    onKeyPress={(e) => e.key === 'Enter' && handleScan()}
+                                    className="w-full px-6 py-4 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg text-center"
+                                    autoFocus
+                                />
+                                <button
+                                    onClick={handleScan}
+                                    disabled={loading}
+                                    className={`w-full py-4 ${type === 'qr' ? 'bg-indigo-500 hover:bg-indigo-600' : 'bg-cyan-500 hover:bg-cyan-600'} text-white rounded-lg font-semibold text-lg disabled:opacity-50 transition-all shadow-lg hover:shadow-xl`}
+                                >
+                                    {loading ? 'Processing...' : 'Scan Now'}
+                                </button>
+                            </div>
+
+                            {result && (
+                                <div className={`p-6 rounded-lg ${result.error ? 'bg-red-50 border-2 border-red-200' : 'bg-green-50 border-2 border-green-200'}`}>
+                                    {result.error ? (
+                                        <div className="flex items-start space-x-3">
+                                            <Icon name="alert-circle" className="w-6 h-6 text-red-600 flex-shrink-0 mt-1" />
+                                            <div>
+                                                <p className="font-semibold text-red-900">Scan Failed</p>
+                                                <p className="text-red-700 text-sm mt-1">{result.error}</p>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-start space-x-3">
+                                            <Icon name="check-circle" className="w-6 h-6 text-green-600 flex-shrink-0 mt-1" />
+                                            <div className="flex-1">
+                                                <p className="font-semibold text-green-900">{result.message}</p>
+                                                <div className="mt-3 space-y-1 text-sm text-green-700">
+                                                    <p><strong>Student:</strong> {result.student}</p>
+                                                    <p><strong>Roll Number:</strong> {result.rollNumber}</p>
+                                                    <p><strong>Action:</strong> {result.action}</p>
+                                                    <p><strong>Time:</strong> {new Date(result.time).toLocaleString()}</p>
+                                                </div>

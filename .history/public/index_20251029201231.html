@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AttendEase — Attendance Register</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        .lucide { width: 24px; height: 24px; }
+        /* printable table tweaks */
+        @media print {
+            body { -webkit-print-color-adjust: exact; }
+            .no-print { display: none; }
+        }
+        /* sticky headers for register table */
+        .sticky-header thead th { position: sticky; top: 0; background: white; z-index: 10; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+        const { Calendar, Users, FileDown, Plus, Search, Trash2, Edit, Menu, X } = lucide;
+
+        const API_BASE_URL = 'http://109.106.255.78:5300/api';
+
+        const apiCall = async (endpoint, options = {}) => {
+            try {
+                const res = await fetch(`${API_BASE_URL}${endpoint}`, options);
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || data.message || 'API error');
+                return data;
+            } catch (err) {
+                console.warn('API call failed', err.message);
+                throw err;
+            }
+        };
+
+        const Icon = ({ name, className = 'w-6 h-6', ...props }) => {
+            useEffect(() => { lucide.createIcons(); });
+            return React.createElement('i', { 'data-lucide': name, className, ...props });
+        };
+
+        const Dashboard = ({ onNavigate }) => {
+            const [stats, setStats] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => { fetchStats(); }, []);
+
+            const fetchStats = async () => {
+                try {
+                    const data = await apiCall('/attendance/stats');
+                    setStats(data);
+                } catch (e) {
+                    // fallback demo stats
+                    setStats({ totalStudents: 120, presentToday: 98, absentToday: 22, attendancePercentage: 82, date: new Date().toISOString().slice(0,10), holidayToday: null });
+                } finally { setLoading(false); }
+            };
+
+            if (loading) return (
+                <div className="flex items-center justify-center h-56">
+                    <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-blue-500"></div>
+                </div>
+            );
+
+            return (
+                <div className="space-y-6">
+                    <div className="bg-gradient-to-r from-indigo-600 to-blue-600 rounded-2xl p-6 text-white shadow">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h1 className="text-2xl font-bold">Welcome to AttendEase</h1>
+                                <p className="text-sm opacity-90">Clean & focused UI — scanners removed as requested.</p>
+                            </div>
+                            <div className="text-right">
+                                <p className="font-semibold">{new Date().toLocaleDateString()}</p>
+                                <p className="text-xs opacity-80">Real-time overview</p>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
+                            <div className="bg-white/90 p-4 rounded-lg text-gray-800 shadow">
+                                <p className="text-xs">Total Students</p>
+                                <p className="text-2xl font-bold">{stats.totalStudents}</p>
+                            </div>
+                            <div className="bg-white/90 p-4 rounded-lg text-gray-800 shadow">
+                                <p className="text-xs">Present Today</p>
+                                <p className="text-2xl font-bold">{stats.presentToday} <span className="text-sm text-gray-500">({stats.attendancePercentage}%)</span></p>
+                            </div>
+                            <div className="bg-white/90 p-4 rounded-lg text-gray-800 shadow">
+                                <p className="text-xs">Absent Today</p>
+                                <p className="text-2xl font-bold">{stats.absentToday}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                        <div className="bg-white rounded-xl p-4 shadow col-span-2">
+                            <h2 className="text-lg font-semibold mb-2">Quick Actions</h2>
+                            <div className="flex flex-wrap gap-3">
+                                <button onClick={() => onNavigate('students')} className="px-4 py-2 bg-blue-500 text-white rounded shadow">Manage Students</button>
+                                <button onClick={() => onNavigate('reports')} className="px-4 py-2 bg-green-500 text-white rounded shadow">Attendance Register</button>
+                                <button onClick={() => onNavigate('holidays')} className="px-4 py-2 bg-indigo-500 text-white rounded shadow">Holidays</button>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-xl p-4 shadow">
+                            <h3 className="font-semibold">Tips</h3>
+                            <ul className="text-sm mt-2 space-y-1 text-gray-600">
+                                <li>Use the Attendance Register to view and export monthly registers.</li>
+                                <li>This UI is intentionally scanner-free — focus on register workflows.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const Students = () => {
+            const [students, setStudents] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [search, setSearch] = useState('');
+
+            useEffect(() => { fetchStudents(); }, []);
+
+            const fetchStudents = async () => {
+                try {
+                    const res = await apiCall('/students');
+                    setStudents(res);
+                } catch (e) {
+                    // demo fallback
+                    setStudents([ { userId: 's1', name: 'Aman Kumar', rollNumber: '01', class: '8A', phone: '7000000001' }, { userId: 's2', name: 'Rina Sharma', rollNumber: '02', class: '8A', phone: '7000000002' }]);
+                } finally { setLoading(false); }
+            };
+
+            const filtered = useMemo(() => students.filter(s => s.name.toLowerCase().includes(search.toLowerCase()) || s.rollNumber.includes(search)), [students, search]);
+
+            return (
+                <div className="space-y-4">
+                    <div className="bg-white rounded-xl p-4 shadow flex items-center justify-between">
+                        <div>
+                            <h2 className="text-lg font-semibold">Students</h2>
+                            <p className="text-sm text-gray-600">Manage student records</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <input className="px-3 py-2 border rounded" placeholder="Search name or roll" value={search} onChange={e=>setSearch(e.target.value)} />
+                            <button className="px-3 py-2 bg-green-500 text-white rounded">Add</button>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-xl p-4 shadow overflow-x-auto">
+                        {loading ? <div className="p-8 text-center">Loading...</div> : (
+                            <table className="w-full table-auto">
+                                <thead className="text-xs text-gray-600 border-b">
+                                    <tr>
+                                        <th className="text-left p-2">S.N</th>
+                                        <th className="text-left p-2">Name</th>
+                                        <th className="text-left p-2">Roll</th>
+                                        <th className="text-left p-2">Class</th>
+                                        <th className="text-left p-2">Contact</th>
+                                        <th className="text-left p-2">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filtered.map((s,i)=> (
+                                        <tr key={s.userId} className="hover:bg-gray-50">
+                                            <td className="p-2">{i+1}</td>
+                                            <td className="p-2 font-medium">{s.name}</td>
+                                            <td className="p-2">{s.rollNumber}</td>
+                                            <td className="p-2">{s.class}</td>
+                                            <td className="p-2">{s.phone || 'N/A'}</td>
+                                            <td className="p-2">
+                                                <button className="text-indigo-600 mr-2">Edit</button>
+                                                <button className="text-red-600">Delete</button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // New: Attendance Register component (monthly, printable/exportable)
+        const AttendanceRegister = () => {
+            const [month, setMonth] = useState(() => new Date().toISOString().slice(0,7)); // YYYY-MM
+            const [data, setData] = useState([]);
+            const [datesInMonth, setDatesInMonth] = useState([]);
+            const [loading, setLoading] = useState(false);
+
+            useEffect(() => { lucide.createIcons(); }, []);
+
+            useEffect(() => { computeDates(month); }, [month]);
+
+            const computeDates = (monthStr) => {
+                if (!monthStr) return setDatesInMonth([]);
+                const [y,m] = monthStr.split('-').map(Number);
+                const total = new Date(y, m, 0).getDate();
+                const arr = Array.from({length: total}, (_,i)=> {
+                    const d = new Date(y, m-1, i+1);
+                    return { key: d.toISOString().slice(0,10), label: d.getDate(), weekday: d.toLocaleDateString(undefined,{ weekday: 'short'}) };
+                });
+                setDatesInMonth(arr);
+            };
+
+            const fetchRegister = async () => {
+                setLoading(true);
+                try {
+                    // EXPECTED API: /reports/register?month=YYYY-MM -> [{ name, rollNumber, class, attendance: { '2025-10-01': 'P'|'A'|'L' } }]
+                    const res = await apiCall(`/reports/register?month=${month}`);
+                    setData(res);
+                } catch (e) {
+                    // Demo fallback data
+                    const demoStudents = [
+                        { name: 'Aman Kumar', rollNumber: '01', class: '8A', attendance: {} },
+                        { name: 'Rina Sharma', rollNumber: '02', class: '8A', attendance: {} },
+                        { name: 'Mohit Verma', rollNumber: '03', class: '8A', attendance: {} },
+                    ];
+                    // fill random presence for demo
+                    demoStudents.forEach(s => {
+                        datesInMonth.forEach(d => {
+                            const r = Math.random();
+                            s.attendance[d.key] = r > 0.12 ? 'P' : (r > 0.05 ? 'L' : 'A');
+                        });
+                    });
+                    setData(demoStudents);
+                } finally { setLoading(false); }
+            };
+
+            const exportCSV = () => {
+                if (data.length === 0) { alert('No data to export'); return; }
+                const headers = ['Name','Roll','Class', ...datesInMonth.map(d=>d.key)];
+                const rows = data.map(r => [r.name, r.rollNumber, r.class, ...datesInMonth.map(d => r.attendance?.[d.key] || '')]);
+                const csv = [headers.join(','), ...rows.map(row=>row.join(','))].join('\n');
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = `attendance_register_${month}.csv`; a.click();
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="bg-white rounded-xl p-4 shadow flex items-center justify-between">
+                        <div>
+                            <h2 className="text-lg font-semibold">Attendance Register</h2>
+                            <p className="text-sm text-gray-600">Monthly view (printable & exportable)</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <input type="month" value={month} onChange={e=>setMonth(e.target.value)} className="px-3 py-2 border rounded" />
+                            <button onClick={fetchRegister} className="px-4 py-2 bg-blue-500 text-white rounded">Load</button>
+                            <button onClick={exportCSV} className="px-4 py-2 bg-green-600 text-white rounded flex items-center gap-2"><Icon name="file-down" /> Export CSV</button>
+                            <button onClick={()=>window.print()} className="px-4 py-2 bg-gray-200 rounded no-print">Print</button>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-xl p-4 shadow overflow-auto">
+                        {loading ? (
+                            <div className="p-12 text-center">Loading register...</div>
+                        ) : (
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm sticky-header">
+                                    <thead>
+                                        <tr>
+                                            <th className="p-2 border">S.N</th>
+                                            <th className="p-2 border">Name</th>
+                                            <th className="p-2 border">Roll</th>
+                                            <th className="p-2 border">Class</th>
+                                            {datesInMonth.map(d => (
+                                                <th key={d.key} className="p-1 border text-xs text-center">{d.label}<div className="text-[10px] text-gray-400">{d.weekday}</div></th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {data.map((s, idx) => (
+                                            <tr key={s.rollNumber} className="hover:bg-gray-50">
+                                                <td className="p-2 border align-top">{idx+1}</td>
+                                                <td className="p-2 border align-top font-medium">{s.name}</td>
+                                                <td className="p-2 border align-top">{s.rollNumber}</td>
+                                                <td className="p-2 border align-top">{s.class}</td>
+                                                {datesInMonth.map(d => (
+                                                    <td key={d.key} className="p-1 border text-center align-top">
+                                                        <span className={`inline-block px-2 py-1 text-xs rounded ${s.attendance?.[d.key] === 'P' ? 'bg-green-100 text-green-700' : s.attendance?.[d.key] === 'L' ? 'bg-yellow-100 text-yellow-700' : s.attendance?.[d.key] === 'A' ? 'bg-red-100 text-red-700' : 'text-gray-400'}`}>
+                                                            {s.attendance?.[d.key] || ''}
+                                                        </span>
+                                                    </td>
+                                                ))}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                                {data.length === 0 && <div className="p-6 text-center text-gray-600">No records. Click <strong>Load</strong> to fetch the register.</div>}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const Holidays = () => {
+            const [holidays, setHolidays] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [showAdd, setShowAdd] = useState(false);
+
+            useEffect(() => { fetchHolidays(); }, []);
+
+            const fetchHolidays = async () => {
+                try {
+                    const res = await apiCall('/holidays');
+                    setHolidays(res);
+                } catch (e) {
+                    setHolidays([{ holidayId: 'h1', name: 'Diwali', date: new Date().toISOString().slice(0,10), reason: 'Festival' }]);
+                } finally { setLoading(false); }
+            };
+
+            return (
+                <div className="space-y-4">
+                    <div className="bg-white rounded-xl p-4 shadow flex items-center justify-between">
+                        <div>
+                            <h3 className="font-semibold">Holidays</h3>
+                            <p className="text-sm text-gray-600">Manage holiday calendar</p>
+                        </div>
+                        <div>
+                            <button onClick={()=>setShowAdd(true)} className="px-3 py-2 bg-blue-500 text-white rounded">Add Holiday</button>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-xl p-4 shadow">
+                        {loading ? <div className="p-6 text-center">Loading...</div> : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {holidays.map(h => (
+                                    <div key={h.holidayId} className="p-4 border rounded">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <div className="font-semibold">{h.name}</div>
+                                                <div className="text-sm text-gray-600">{new Date(h.date).toLocaleDateString()}</div>
+                                            </div>
+                                            <button className="text-red-600">Delete</button>
+                                        </div>
+                                        {h.reason && <div className="text-sm text-gray-700 mt-2">{h.reason}</div>}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {showAdd && (
+                        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+                            <div className="bg-white p-4 rounded shadow w-full max-w-md">
+                                <h4 className="font-semibold">Add Holiday</h4>
+                                <p className="text-sm text-gray-600">(Demo modal — implement POST to /holidays)</p>
+                                <div className="mt-4 flex justify-end">
+                                    <button onClick={()=>setShowAdd(false)} className="px-3 py-1 border rounded">Close</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [page, setPage] = useState('dashboard');
+            const [sidebarOpen, setSidebarOpen] = useState(false);
+
+            useEffect(()=>{ lucide.createIcons(); }, []);
+
+            const menu = [
+                { id: 'dashboard', name: 'Dashboard', icon: 'layout-dashboard' },
+                { id: 'students', name: 'Students', icon: 'users' },
+                { id: 'reports', name: 'Attendance Register', icon: 'calendar' },
+                { id: 'holidays', name: 'Holidays', icon: 'calendar' },
+            ];
+
+            const render = () => {
+                switch(page){
+                    case 'dashboard': return <Dashboard onNavigate={setPage} />;
+                    case 'students': return <Students />;
+                    case 'reports': return <AttendanceRegister />;
+                    case 'holidays': return <Holidays />;
+                    default: return <Dashboard onNavigate={setPage} />;
+                }
+            };
+
+            return (
+                <div className="flex h-screen bg-gray-100">
+                    <aside className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:static inset-y-0 left-0 z-50 w-64 bg-gradient-to-b from-gray-900 to-gray-800 text-white transition-transform`}>
+                        <div className="p-4 border-b border-gray-700 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="bg-blue-500 p-2 rounded"><Icon name="users" /></div>
+                                <div>
+                                    <div className="font-bold">AttendEase</div>
+                                    <div className="text-xs text-gray-300">Attendance Register UI</div>
+                                </div>
+                            </div>
+                            <button className="md:hidden" onClick={()=>setSidebarOpen(false)}><Icon name="x" /></button>
+                        </div>
+                        <nav className="p-4 space-y-2">
+                            {menu.map(m => (
+                                <button key={m.id} onClick={()=>{setPage(m.id); setSidebarOpen(false);}} className={`w-full text-left px-3 py-2 rounded ${page===m.id? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`}>
+                                    <span className="inline-block mr-2"> <Icon name={m.icon} /></span> {m.name}
+                                </button>
+                            ))}
+                        </nav>
+                        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-700">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center">AD</div>
+                                <div>
+                                    <div className="text-sm">Admin User</div>
+                                    <div className="text-xs text-gray-400">admin@attendease.com</div>
+                                </div>
+                            </div>
+                        </div>
+                    </aside>
+
+                    <main className="flex-1 flex flex-col overflow-hidden">
+                        <header className="bg-white shadow-sm border-b px-4 py-3">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <button className="md:hidden" onClick={()=>setSidebarOpen(true)}><Icon name="menu" /></button>
+                                    <h3 className="text-lg font-semibold">{page === 'dashboard' ? 'Dashboard' : page === 'students' ? 'Students' : page === 'reports' ? 'Attendance Register' : 'Holidays'}</h3>
+                                </div>
+                                <div className="text-sm text-gray-600">{new Date().toLocaleString()}</div>
+                            </div>
+                        </header>
+
+                        <div className="flex-1 overflow-y-auto p-6">{render()}</div>
+                    </main>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

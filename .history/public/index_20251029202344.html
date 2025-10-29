@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AttendEase — Attendance Register</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @media print {
+            body { -webkit-print-color-adjust: exact; }
+            .no-print { display: none; }
+        }
+        .scroll-container {
+            overflow: auto;
+            max-height: calc(100vh - 280px);
+        }
+        .sticky-col {
+            position: sticky;
+            left: 0;
+            background: white;
+            z-index: 5;
+        }
+        .sticky-header {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: #eef2ff;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+        const API_BASE = 'http://109.106.255.78:5300/api';
+
+        const AttendanceRegister = () => {
+            const [students, setStudents] = useState([]);
+            const [attendanceData, setAttendanceData] = useState({});
+            const [holidays, setHolidays] = useState([]);
+            const [selectedMonth, setSelectedMonth] = useState(() => {
+                const now = new Date();
+                return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            });
+            const [isLoading, setIsLoading] = useState(false);
+            const [isExporting, setIsExporting] = useState(false);
+            const [showFormatDialog, setShowFormatDialog] = useState(false);
+            const [showHolidayDialog, setShowHolidayDialog] = useState(false);
+            const [selectedDate, setSelectedDate] = useState('');
+            const [holidayForm, setHolidayForm] = useState({ name: '', reason: '' });
+
+            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+            const { year, month, monthName, daysInMonth } = useMemo(() => {
+                const [y, m] = selectedMonth.split('-').map(Number);
+                return {
+                    year: y,
+                    month: m,
+                    monthName: monthNames[m - 1],
+                    daysInMonth: new Date(y, m, 0).getDate()
+                };
+            }, [selectedMonth]);
+
+            useEffect(() => {
+                loadData();
+            }, [selectedMonth]);
+
+            const loadData = async () => {
+                setIsLoading(true);
+                try {
+                    // Load students
+                    const studentsResp = await fetch(`${API_BASE}/students`);
+                    if (studentsResp.ok) {
+                        const studentsData = await studentsResp.json();
+                        setStudents(studentsData);
+                    }
+
+                    // Load attendance data
+                    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+                    const endDate = `${year}-${String(month).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`;
+                    
+                    const attendanceResp = await fetch(`${API_BASE}/attendance/range?start=${startDate}&end=${endDate}`);
+                    if (attendanceResp.ok) {
+                        const response = await attendanceResp.json();
+                        const attendanceList = response.attendance || [];
+                        const holidaysList = response.holidays || [];
+
+                        // Process attendance data
+                        const processedData = {};
+                        attendanceList.forEach(record => {
+                            const userId = record.userId?.toString() || '';
+                            const date = record.date?.toString() || '';
+                            const statusRaw = record.status?.toString() || '';
+                            
+                            const checkInTime = record.checkInTime ? new Date(record.checkInTime) : null;
+                            const checkOutTime = record.checkOutTime ? new Date(record.checkOutTime) : null;
+
+                            if (!userId || !date) return;
+
+                            if (!processedData[userId]) processedData[userId] = {};
+                            if (!processedData[userId][date]) processedData[userId][date] = [];
+
+                            processedData[userId][date].push({
+                                status: (statusRaw === 'checked-in' || statusRaw === 'checked-out') ? 'P' : 'A',
+                                checkInTime: checkInTime ? checkInTime.toISOString() : '',
+                                checkOutTime: checkOutTime ? checkOutTime.toISOString() : ''
+                            });
+                        });
+
+                        setAttendanceData(processedData);
+                        setHolidays(holidaysList);
+                    }
+                } catch (error) {
+                    showSnack(`Error loading data: ${error.message}`, true);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            const changeMonth = (direction) => {
+                const [y, m] = selectedMonth.split('-').map(Number);
+                const newDate = new Date(y, m - 1 + direction, 1);
+                setSelectedMonth(`${newDate.getFullYear()}-${String(newDate.getMonth() + 1).padStart(2, '0')}`);
+            };
+
+            const formatTime = (isoString) => {
+                if (!isoString || isoString.length < 16) return '--';
+                return isoString.substring(11, 16);
+            };
+
+            const getHolidayForDate = (dateStr) => {
+                return holidays.find(h => h.date === dateStr) || null;
+            };
+
+            const handleAddHoliday = async () => {
+                if (!holidayForm.name.trim()) {
+                    showSnack('Please enter a holiday name', true);
+                    return;
+                }
+
+                try {
+                    const resp = await fetch(`${API_BASE}/holidays`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            date: selectedDate,
+                            name: holidayForm.name,
+                            reason: holidayForm.reason
+                        })
+                    });
+
+                    if (resp.ok) {
+                        showSnack('Holiday added successfully');
+                        setShowHolidayDialog(false);
+                        setHolidayForm({ name: '', reason: '' });
+                        loadData();
+                    } else {
+                        const error = await resp.json();
+                        showSnack(error.error || 'Failed to add holiday', true);
+                    }
+                } catch (error) {
+                    showSnack(`Network error: ${error.message}`, true);
+                }
+            };
+
+            const exportToCSV = () => {
+                let csv = 'S.No,Name,Roll Number,Phone,';
+                
+                // Date headers
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const date = new Date(year, month - 1, day);
+                    if (date.getDay() !== 0) {
+                        csv += `${day},`;
+                    }
+                }
+                csv += 'Total Present,Total Absent,Attendance %\n';
+
+                // Data rows
+                students.forEach((student, i) => {
+                    const userAttendance = attendanceData[student.userId] || {};
+                    csv += `${i + 1},${student.name},${student.rollNumber},${student.phone},`;
+
+                    let presentCount = 0;
+                    let totalDays = 0;
+
+                    for (let day = 1; day <= daysInMonth; day++) {
+                        const date = new Date(year, month - 1, day);
+                        if (date.getDay() !== 0) {
+                            const dateStr = date.toISOString().split('T')[0];
+                            const hasRecords = userAttendance[dateStr]?.length > 0;
+                            const status = hasRecords ? 'P' : 'A';
+                            csv += `${status},`;
+                            totalDays++;
+                            if (status === 'P') presentCount++;
+                        }
+                    }
+
+                    const percentage = totalDays > 0 ? ((presentCount / totalDays) * 100).toFixed(1) : '0.0';
+                    csv += `${presentCount},${totalDays - presentCount},${percentage}%\n`;
+                });
+
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Attendance_${monthName}_${year}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+            };
+
+            const showSnack = (message, isError = false) => {
+                // Simple alert for now - can be replaced with toast library
+                alert(message);
+            };
+
+            const renderDateCell = (day) => {
+                const date = new Date(year, month - 1, day);
+                const today = new Date();
+                const isToday = date.toDateString() === today.toDateString();
+                const isSunday = date.getDay() === 0;
+                const dateStr = date.toISOString().split('T')[0];
+                const holiday = getHolidayForDate(dateStr);
+
+                const monthShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][month - 1];
+
+                return (
+                    <div 
+                        className={`w-32 ${holiday ? 'h-14' : 'h-10'} rounded-lg flex flex-col items-center justify-center cursor-pointer ${
+                            isSunday ? 'bg-red-100' : isToday ? 'bg-blue-100' : 'bg-gray-50'
+                        }`}
+                        onClick={() => {
+                            setSelectedDate(dateStr);
+                            const existingHoliday = getHolidayForDate(dateStr);
+                            if (existingHoliday) {
+                                alert(`Holiday: ${existingHoliday.name}\nReason: ${existingHoliday.reason || 'N/A'}`);
+                            } else {
+                                setHolidayForm({ name: '', reason: '' });
+                                setShowHolidayDialog(true);
+                            }
+                        }}
+                    >
+                        <span className={`text-sm font-medium ${
+                            isSunday ? 'text-red-700' : isToday ? 'text-blue-700' : 'text-gray-800'
+                        }`}>
+                            {day} {monthShort}
+                        </span>
+                        {holiday && (
+                            <span className="mt-1 px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded font-semibold">
+                                {holiday.name}
+                            </span>
+                        )}
+                    </div>
+                );
+            };
+
+            const renderAttendanceCell = (userId, day) => {
+                const date = new Date(year, month - 1, day);
+                const isSunday = date.getDay() === 0;
+                const dateStr = date.toISOString().split('T')[0];
+                const holiday = getHolidayForDate(dateStr);
+                const records = attendanceData[userId]?.[dateStr] || [];
+
+                if (isSunday) {
+                    return (
+                        <div className="w-32 h-11 bg-red-50 rounded-lg flex items-center justify-center">
+                            <span className="text-xs text-red-600 font-bold">Sunday</span>
+                        </div>
+                    );
+                }
+
+                if (records.length === 0 && holiday) {
+                    return (
+                        <div className="w-32 h-11 bg-purple-50 rounded-lg flex items-center justify-center">
+                            <span className="text-sm text-purple-700 font-bold">H</span>
+                        </div>
+                    );
+                }
+
+                if (records.length === 0) {
+                    return (
+                        <div className="w-32 h-11 bg-red-50 rounded-lg flex items-center justify-center">
+                            <span className="text-sm text-red-700 font-bold">A</span>
+                        </div>
+                    );
+                }
+
+                return (
+                    <div className="w-32 px-1.5 py-1.5 bg-green-50 rounded-lg">
+                        {records.slice(0, 2).map((record, idx) => (
+                            <div key={idx} className="h-10 mb-0.5 px-2 bg-green-700 rounded flex items-center justify-center text-white">
+                                <div className="flex-1 text-center">
+                                    <div className="text-[9px] font-bold">CheckIn</div>
+                                    <div className="text-[11px] font-bold">{formatTime(record.checkInTime)}</div>
+                                </div>
+                                <div className="w-px h-7 bg-white opacity-50 mx-1.5"></div>
+                                <div className="flex-1 text-center">
+                                    <div className="text-[9px] font-bold">CheckOut</div>
+                                    <div className="text-[11px] font-bold">{formatTime(record.checkOutTime)}</div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                );
+            };
+
+            return (
+                <div className="min-h-screen bg-gray-100 p-4">
+                    {/* Header */}
+                    <div className="bg-indigo-700 text-white p-4 rounded-lg mb-4 flex items-center justify-between">
+                        <h1 className="text-2xl font-bold">Attendance Register</h1>
+                        <button
+                            onClick={() => setShowFormatDialog(true)}
+                            disabled={isExporting}
+                            className="px-4 py-2 bg-white text-indigo-700 rounded-lg font-semibold hover:bg-gray-100 disabled:opacity-50"
+                        >
+                            {isExporting ? 'Exporting...' : 'Export'}
+                        </button>
+                    </div>
+
+                    {/* Month Selector */}
+                    <div className="bg-indigo-50 p-4 rounded-lg mb-4">
+                        <div className="flex items-center justify-between">
+                            <button
+                                onClick={() => changeMonth(-1)}
+                                className="p-2 bg-white rounded-lg shadow hover:bg-gray-50"
+                            >
+                                <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                </svg>
+                            </button>
+                            <div className="text-center">
+                                <div className="text-xl font-bold text-indigo-800">{monthName} {year}</div>
+                                <div className="text-sm text-indigo-600">{students.length} students</div>
+                            </div>
+                            <button
+                                onClick={() => changeMonth(1)}
+                                className="p-2 bg-white rounded-lg shadow hover:bg-gray-50"
+                            >
+                                <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Legend */}
+                    <div className="bg-gray-50 p-3 rounded-lg mb-4">
+                        <div className="flex items-center justify-evenly flex-wrap gap-4">
+                            <div className="flex items-center gap-2">
+                                <div className="w-5 h-5 bg-green-200 rounded flex items-center justify-center">
+                                    <span className="text-xs font-bold text-green-700">P</span>
+                                </div>
+                                <span className="text-sm text-gray-700">Present</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <div className="w-5 h-5 bg-red-200 rounded flex items-center justify-center">
+                                    <span className="text-xs font-bold text-red-700">A</span>
+                                </div>
+                                <span className="text-sm text-gray-700">Absent</span>
+                            </div>
+                            <div className="px-3 py-1 bg-blue-100 rounded-lg">
+                                <span className="text-xs font-bold text-blue-700">Today</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Register Table */}
+                    {isLoading ? (
+                        <div className="flex items-center justify-center h-64">
+                            <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-indigo-500"></div>
+                        </div>
+                    ) : (
+                        <div className="bg-white rounded-xl shadow overflow-hidden">
+                            <div className="scroll-container">
+                                <div className="inline-block min-w-full">
+                                    {/* Header */}
+                                    <div className="sticky-header p-3 flex items-center gap-2">
+                                        <div className="sticky-col w-16 font-bold text-xs text-indigo-800">S.No</div>
+                                        <div className="sticky-col w-40 font-bold text-xs text-indigo-800">Student Name</div>
+                                        <div className="sticky-col w-32 font-bold text-xs text-indigo-800">Roll Number</div>
+                                        {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => (
+                                            <div key={day} className="px-0.5">
+                                                {renderDateCell(day)}
+                                            </div>
+                                        ))}
+                                        <div className="w-20 ml-4 font-bold text-xs text-indigo-800">Present</div>
+                                        <div className="w-20 font-bold text-xs text-indigo-800">Percentage</div>
+                                    </div>
+
+                                    {/* Rows */}
+                                    {students.map((student, idx) => {
+                                        const userAttendance = attendanceData[student.userId] || {};
+                                        let presentCount = 0;
+                                        let totalWorkingDays = 0;
+
+                                        for (let day = 1; day <= daysInMonth; day++) {
+                                            const date = new Date(year, month - 1, day);
+                                            if (date.getDay() !== 0) {
+                                                totalWorkingDays++;
+                                                const dateStr = date.toISOString().split('T')[0];
+                                                if (userAttendance[dateStr]?.length > 0) presentCount++;
+                                            }
+                                        }
+
+                                        const percentage = totalWorkingDays > 0 ? ((presentCount / totalWorkingDays) * 100).toFixed(1) : '0.0';
+
+                                        return (
+                                            <div key={student.userId} className="p-3 border-t flex items-center gap-2 hover:bg-gray-50">
+                                                <div className="sticky-col w-16 text-xs text-gray-700">{idx + 1}</div>
+                                                <div className="sticky-col w-40">
+                                                    <div className="text-sm font-semibold">{student.name}</div>
+                                                    <div className="text-xs text-gray-600">{student.class}</div>
+                                                </div>
+                                                // <div className="sticky-col w-32 text-xs text-gray-700">{student.rollNumber}</div>
+                                                {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => (
+                                                    <div key={day} className="px-0.5">
+                                                        {renderAttendanceCell(student.userId, day)}
+                                                    </div>
+                                                ))}
+                                                <div className="w-20 ml-4">
+                                                    <div className="px-2 py-1 bg-green-50 rounded text-xs font-bold text-green-700 text-center">
+                                                        {presentCount}/{totalWorkingDays}
+                                                    </div>
+                                                </div>
+                                                <div className="w-20">
+                                                    <div className={`px-2 py-1 rounded text-xs font-bold text-center ${
+                                                        parseFloat(percentage) >= 75 ? 'bg-green-50 text-green-700' :
+                                                        parseFloat(percentage) >= 50 ? 'bg-orange-50 text-orange-700' :
+                                                        'bg-red-50 text-red-700'
+                                                    }`}>
+                                                        {percentage}%
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Export Format Dialog */}
+                    {showFormatDialog && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                            <div className="bg-white rounded-lg p-6 w-96">
+                                <h3 className="text-lg font-bold mb-4">Export Format</h3>
+                                <div className="space-y-3">
+                                    <button
+                                        onClick={() => {
+                                            exportToCSV();
+                                            setShowFormatDialog(false);
+                                        }}
+                                        className="w-full p-3 border rounded-lg hover:bg-gray-50 text-left"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className="text-blue-600">📄</div>
+                                            <div>
+                                                <div className="font-semibold">CSV (.csv)</div>
+                                                <div className="text-xs text-gray-600">Simple format, compatible everywhere</div>
+                                            </div>
+                                        </div>
+                                    </button>
+                                </div>
+                                <button
+                                    onClick={() => setShowFormatDialog(false)}
+                                    className="mt-4 w-full px-4 py-2 border rounded-lg hover:bg-gray-50"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Add Holiday Dialog */}
+                    {showHolidayDialog && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                            <div className="bg-white rounded-lg p-6 w-96">
+                                <h3 className="text-lg font-bold mb-4">Add Holiday for {selectedDate}</h3>
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">Holiday Name</label>
+                                        <input
+                                            type="text"
+                                            value={holidayForm.name}
+                                            onChange={(e) => setHolidayForm({...holidayForm, name: e.target.value})}
+                                            className="w-full px-3 py-2 border rounded-lg"
+                                            placeholder="e.g., Diwali"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">Reason (Optional)</label>
+                                        <input
+                                            type="text"
+                                            value={holidayForm.reason}
+                                            onChange={(e) => setHolidayForm({...holidayForm, reason: e.target.value})}
+                                            className="w-full px-3 py-2 border rounded-lg"
+                                            placeholder="e.g., Festival"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex gap-2 mt-4">
+                                    <button
+                                        onClick={() => setShowHolidayDialog(false)}
+                                        className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleAddHoliday}
+                                        className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                                    >
+                                        Add Holiday
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<AttendanceRegister />);
+    </script>
+</body>
+</html>
