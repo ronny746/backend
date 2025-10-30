@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AttendEase Admin</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @media print {
+            body { -webkit-print-color-adjust: exact; }
+            .no-print { display: none; }
+        }
+        .scroll-container {
+            overflow: auto;
+            max-height: calc(100vh - 200px);
+        }
+        .sticky-col {
+            position: sticky;
+            left: 0;
+            background: white;
+            z-index: 5;
+            box-shadow: 2px 0 3px rgba(0,0,0,0.05);
+        }
+        .sticky-header {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: #f8fafc;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+        const API_BASE = 'http://109.106.255.78:5300/api';
+
+        const AdminDashboard = () => {
+            const [currentPage, setCurrentPage] = useState('home');
+            const [sidebarOpen, setSidebarOpen] = useState(true);
+            const [students, setStudents] = useState([]);
+            const [attendanceData, setAttendanceData] = useState({});
+            const [holidays, setHolidays] = useState([]);
+            const [stats, setStats] = useState({
+                totalStudents: 0,
+                presentToday: 0,
+                absentToday: 0,
+                qrScans: 0,
+                rfidScans: 0,
+                attendancePercentage: 0
+            });
+            const [selectedMonth, setSelectedMonth] = useState(() => {
+                const now = new Date();
+                return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            });
+            const [isLoading, setIsLoading] = useState(false);
+            const [uploadFile, setUploadFile] = useState(null);
+            const [searchQuery, setSearchQuery] = useState('');
+            const [classFilter, setClassFilter] = useState('All');
+            const [showHolidayDialog, setShowHolidayDialog] = useState(false);
+            const [selectedDate, setSelectedDate] = useState('');
+            const [holidayForm, setHolidayForm] = useState({ name: '', reason: '' });
+
+            const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+            const { year, month, monthName, daysInMonth } = useMemo(() => {
+                const [y, m] = selectedMonth.split('-').map(Number);
+                return {
+                    year: y,
+                    month: m,
+                    monthName: monthNames[m - 1],
+                    daysInMonth: new Date(y, m, 0).getDate()
+                };
+            }, [selectedMonth]);
+
+            const availableClasses = useMemo(() => {
+                const classes = [...new Set(students.map(s => s.class))];
+                return ['All', ...classes];
+            }, [students]);
+
+            useEffect(() => {
+                loadData();
+                loadStats();
+            }, [selectedMonth, currentPage]);
+
+            const loadData = async () => {
+                setIsLoading(true);
+                try {
+                    const studentsResp = await fetch(`${API_BASE}/students`);
+                    if (studentsResp.ok) {
+                        const studentsData = await studentsResp.json();
+                        setStudents(studentsData);
+                    }
+
+                    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+                    const endDate = `${year}-${String(month).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`;
+                    
+                    const attendanceResp = await fetch(`${API_BASE}/attendance/range?start=${startDate}&end=${endDate}`);
+                    if (attendanceResp.ok) {
+                        const response = await attendanceResp.json();
+                        const attendanceList = response.attendance || [];
+                        const holidaysList = response.holidays || [];
+
+                        const processedData = {};
+                        attendanceList.forEach(record => {
+                            const userId = record.userId?.toString() || '';
+                            const date = record.date?.toString() || '';
+                            
+                            if (!userId || !date) return;
+
+                            if (!processedData[userId]) processedData[userId] = {};
+                            if (!processedData[userId][date]) processedData[userId][date] = [];
+
+                            processedData[userId][date].push({
+                                status: 'P',
+                                checkInTime: record.checkInTime,
+                                checkOutTime: record.checkOutTime,
+                                scanType: record.scanType || 'qr'
+                            });
+                        });
+
+                        setAttendanceData(processedData);
+                        setHolidays(holidaysList);
+                    }
+                } catch (error) {
+                    showSnack(`Error: ${error.message}`, true);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            const loadStats = async () => {
+                try {
+                    const resp = await fetch(`${API_BASE}/attendance/stats`);
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        setStats(data);
+                    }
+                } catch (error) {
+                    console.error('Stats error:', error);
+                }
+            };
+
+            const handleFileUpload = async () => {
+                if (!uploadFile) {
+                    showSnack('Please select a file', true);
+                    return;
+                }
+
+                const formData = new FormData();
+                formData.append('studentFile', uploadFile);
+
+                try {
+                    setIsLoading(true);
+                    const resp = await fetch(`${API_BASE}/import-students`, {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        showSnack(`${data.count} students imported successfully`);
+                        setUploadFile(null);
+                        loadData();
+                    } else {
+                        const error = await resp.json();
+                        showSnack(error.error || 'Upload failed', true);
+                    }
+                } catch (error) {
+                    showSnack(`Error: ${error.message}`, true);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            const downloadSampleFile = () => {
+                const csv = 'S.N,Name,Roll number,Mobile,Class,RFID,Qr link\n1,Rahul Kumar,R2024001,9876543210,IIT JEE 2026,RFID001,https://example.com/qr?data=%7B%22roll_number%22%3A%22R2024001%22%7D\n2,Priya Sharma,R2024002,9876543211,NEET 2025,RFID002,https://example.com/qr?data=%7B%22roll_number%22%3A%22R2024002%22%7D\n3,Amit Singh,R2024003,9876543212,Foundation,RFID003,https://example.com/qr?data=%7B%22roll_number%22%3A%22R2024003%22%7D';
+                
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'student_upload_sample.csv';
+                a.click();
+                URL.revokeObjectURL(url);
+                showSnack('Sample file downloaded');
+            };
+
+            const handleAddHoliday = async () => {
+                if (!holidayForm.name.trim()) {
+                    showSnack('Enter holiday name', true);
+                    return;
+                }
+
+                try {
+                    const resp = await fetch(`${API_BASE}/holidays`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            date: selectedDate,
+                            name: holidayForm.name,
+                            reason: holidayForm.reason
+                        })
+                    });
+
+                    if (resp.ok) {
+                        showSnack('Holiday added');
+                        loadData();
+                        setShowHolidayDialog(false);
+                        setHolidayForm({ name: '', reason: '' });
+                    } else {
+                        const error = await resp.json();
+                        showSnack(error.error || 'Failed', true);
+                    }
+                } catch (error) {
+                    showSnack(`Error: ${error.message}`, true);
+                }
+            };
+
+            const exportToCSV = () => {
+                let csv = 'S.No,Name,Roll,Class,Phone,';
+                
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const date = new Date(year, month - 1, day);
+                    if (date.getDay() !== 0) {
+                        csv += `${day},`;
+                    }
+                }
+                csv += 'Present,Absent,Percentage\n';
+
+                filteredStudents.forEach((student, i) => {
+                    const userAttendance = attendanceData[student.userId] || {};
+                    csv += `${i + 1},${student.name},${student.rollNumber},${student.class},${student.phone},`;
+
+                    let presentCount = 0;
+                    let totalDays = 0;
+
+                    for (let day = 1; day <= daysInMonth; day++) {
+                        const date = new Date(year, month - 1, day);
+                        if (date.getDay() !== 0) {
+                            const dateStr = date.toISOString().split('T')[0];
+                            const hasRecords = userAttendance[dateStr]?.length > 0;
+                            const status = hasRecords ? 'P' : 'A';
+                            csv += `${status},`;
+                            totalDays++;
+                            if (status === 'P') presentCount++;
+                        }
+                    }
+
+                    const percentage = totalDays > 0 ? ((presentCount / totalDays) * 100).toFixed(1) : '0.0';
+                    csv += `${presentCount},${totalDays - presentCount},${percentage}%\n`;
+                });
+
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Attendance_${monthName}_${year}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+                showSnack('CSV exported');
+            };
+
+            const showSnack = (message, isError = false) => {
+                const snackbar = document.createElement('div');
+                snackbar.className = `fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-lg text-white text-sm font-medium z-50 ${isError ? 'bg-red-500' : 'bg-green-500'}`;
+                snackbar.textContent = message;
+                document.body.appendChild(snackbar);
+                setTimeout(() => snackbar.remove(), 3000);
+            };
+
+            const changeMonth = (direction) => {
+                const [y, m] = selectedMonth.split('-').map(Number);
+                const newDate = new Date(y, m - 1 + direction, 1);
+                setSelectedMonth(`${newDate.getFullYear()}-${String(newDate.getMonth() + 1).padStart(2, '0')}`);
+            };
+
+            const formatTime = (isoString) => {
+                if (!isoString || isoString.length < 16) return '--';
+                return isoString.substring(11, 16);
+            };
+
+            const getHolidayForDate = (dateStr) => {
+                return holidays.find(h => h.date === dateStr) || null;
+            };
+
+            const filteredStudents = useMemo(() => {
+                let filtered = students;
+
+                if (classFilter !== 'All') {
+                    filtered = filtered.filter(s => s.class === classFilter);
+                }
+
+                if (searchQuery.trim()) {
+                    const q = searchQuery.toLowerCase();
+                    filtered = filtered.filter(s => 
+                        s.name.toLowerCase().includes(q) ||
+                        s.rollNumber.toLowerCase().includes(q) ||
+                        s.userId.toLowerCase().includes(q)
+                    );
+                }
+
+                return filtered;
+            }, [students, searchQuery, classFilter]);
+
+            const renderHome = () => (
+                <div className="space-y-6">
+                    <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl p-8 text-white">
+                        <h2 className="text-3xl font-bold mb-2">Welcome to AttendEase Admin</h2>
+                        <p className="text-blue-100">Manage attendance, students, and generate reports efficiently</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {[
+                            { label: 'Total Students', value: stats.totalStudents, color: 'blue', icon: '👥', desc: 'Registered' },
+                            { label: 'Present Today', value: stats.presentToday, color: 'green', icon: '✓', desc: 'Checked In' },
+                            { label: 'Absent Today', value: stats.absentToday, color: 'red', icon: '✗', desc: 'Not Present' },
+                            { label: 'Attendance Rate', value: `${stats.attendancePercentage}%`, color: 'orange', icon: '📈', desc: 'Today' }
+                        ].map((stat, idx) => (
+                            <div key={idx} className="bg-white rounded-xl shadow-lg p-6 hover:shadow-xl transition-shadow">
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className={`w-12 h-12 rounded-lg bg-${stat.color}-100 flex items-center justify-center text-2xl`}>
+                                        {stat.icon}
+                                    </div>
+                                    <div className={`text-3xl font-bold text-${stat.color}-600`}>{stat.value}</div>
+                                </div>
+                                <h3 className="text-sm font-semibold text-gray-700">{stat.label}</h3>
+                                <p className="text-xs text-gray-500">{stat.desc}</p>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="bg-white rounded-xl shadow-lg p-6">
+                            <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                                <span className="text-2xl">📊</span>
+                                Scan Statistics
+                            </h3>
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-lg bg-blue-500 flex items-center justify-center text-white text-xl">📱</div>
+                                        <div>
+                                            <div className="text-sm font-semibold">QR Code Scans</div>
+                                            <div className="text-xs text-gray-500">Mobile scanning</div>
+                                        </div>
+                                    </div>
+                                    <div className="text-2xl font-bold text-blue-600">{stats.qrScans}</div>
+                                </div>
+                                <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-lg bg-purple-500 flex items-center justify-center text-white text-xl">💳</div>
+                                        <div>
+                                            <div className="text-sm font-semibold">RFID Card Scans</div>
+                                            <div className="text-xs text-gray-500">Card reader</div>
+                                        </div>
+                                    </div>
+                                    <div className="text-2xl font-bold text-purple-600">{stats.rfidScans}</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-xl shadow-lg p-6">
+                            <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                                <span className="text-2xl">🎯</span>
+                                Quick Actions
+                            </h3>
+                            <div className="grid grid-cols-2 gap-3">
+                                <button
+                                    onClick={() => setCurrentPage('register')}
+                                    className="p-4 bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-lg hover:shadow-lg transition-all"
+                                >
+                                    <div className="text-2xl mb-2">📅</div>
+                                    <div className="text-sm font-semibold">View Register</div>
+                                </button>
+                                <button
+                                    onClick={() => setCurrentPage('reports')}
+                                    className="p-4 bg-gradient-to-br from-green-500 to-green-600 text-white rounded-lg hover:shadow-lg transition-all"
+                                >
+                                    <div className="text-2xl mb-2">📊</div>
+                                    <div className="text-sm font-semibold">Reports</div>
+                                </button>
+                                <button
+                                    onClick={() => setCurrentPage('students')}
+                                    className="p-4 bg-gradient-to-br from-purple-500 to-purple-600 text-white rounded-lg hover:shadow-lg transition-all"
+                                >
+                                    <div className="text-2xl mb-2">👥</div>
+                                    <div className="text-sm font-semibold">Students</div>
+                                </button>
+                                <button
+                                    onClick={downloadSampleFile}
+                                    className="p-4 bg-gradient-to-br from-orange-500 to-orange-600 text-white rounded-lg hover:shadow-lg transition-all"
+                                >
+                                    <div className="text-2xl mb-2">📥</div>
+                                    <div className="text-sm font-semibold">Sample File</div>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-xl shadow-lg p-6">
+                        <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                            <span className="text-2xl">📚</span>
+                            Upload Students Data
+                        </h3>
+                        <div className="space-y-4">
+                            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-400 transition-colors">
+                                <input
+                                    type="file"
+                                    accept=".xlsx,.xls,.csv"
+                                    onChange={(e) => setUploadFile(e.target.files[0])}
+                                    className="hidden"
+                                    id="file-upload"
+                                />
+                                <label htmlFor="file-upload" className="cursor-pointer">
+                                    <div className="text-5xl mb-3">📄</div>
+                                    <div className="text-sm font-semibold text-gray-700 mb-1">
+                                        {uploadFile ? uploadFile.name : 'Click to upload or drag and drop'}
+                                    </div>
+                                    <div className="text-xs text-gray-500">Excel or CSV file (Max 10MB)</div>
+                                </label>
+                            </div>
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={downloadSampleFile}
+                                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium text-sm"
+                                >
+                                    📥 Download Sample
+                                </button>
+                                <button
+                                    onClick={handleFileUpload}
+                                    disabled={!uploadFile || isLoading}
+                                    className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed font-medium text-sm"
+                                >
+                                    {isLoading ? '⏳ Uploading...' : '📤 Upload File'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            const renderDateCell = (day) => {
+                const date = new Date(year, month - 1, day);
+                const today = new Date();
+                const isToday = date.toDateString() === today.toDateString();
+                const isSunday = date.getDay() === 0;
+                const dateStr = date.toISOString().split('T')[0];
+                const holiday = getHolidayForDate(dateStr);
+
+                return (
+                    <div 
+                        className={`w-20 h-10 rounded flex flex-col items-center justify-center cursor-pointer text-xs font-medium transition-all ${
+                            isSunday ? 'bg-red-50 border border-red-200 text-red-600' : 
+                            isToday ? 'bg-blue-100 border border-blue-300 text-blue-700' : 
+                            holiday ? 'bg-purple-50 border border-purple-200 text-purple-600' :
+                            'bg-gray-50 border border-gray-200 text-gray-700 hover:bg-gray-100'
+                        }`}
+                        onClick={() => {
+                            setSelectedDate(dateStr);
+                            const existingHoliday = getHolidayForDate(dateStr);
+                            if (existingHoliday) {
+                                alert(`${existingHoliday.name}\n${existingHoliday.reason || ''}`);
+                            } else if (!isSunday) {
+                                setHolidayForm({ name: '', reason: '' });
+                                setShowHolidayDialog(true);
+                            }
+                        }}
+                    >
+                        <span>{day}</span>
+                        {holiday && <span className="text-[8px]">{holiday.name.substring(0, 6)}</span>}
+                    </div>
+                );
+            };
+
+            const renderAttendanceCell = (userId, day) => {
+                const date = new Date(year, month - 1, day);
+                const isSunday = date.getDay() === 0;
+                const dateStr = date.toISOString().split('T')[0];
+                const holiday = getHolidayForDate(dateStr);
+                const records = attendanceData[userId]?.[dateStr] || [];
+
+                if (isSunday) {
+                    return (
+                        <div className="w-20 h-10 bg-red-50 border border-red-200 rounded flex items-center justify-center">
+                            <span className="text-[10px] text-red-600 font-medium">SUN</span>
+                        </div>
+                    );
+                }
+
+                if (records.length === 0 && holiday) {
+                    return (
+                        <div className="w-20 h-10 bg-purple-50 border border-purple-200 rounded flex items-center justify-center">
+                            <span className="text-[10px] text-purple-600 font-medium">HOL</span>
+                        </div>
+                    );
+                }
+
+                if (records.length === 0) {
+                    return (
+                        <div className="w-20 h-10 bg-red-50 border border-red-200 rounded flex items-center justify-center">
+                            <span className="text-sm text-red-600 font-bold">A</span>
+                        </div>
+                    );
+                }
+
+                return (
+                    <div className="w-20 h-10 bg-green-50 border border-green-200 rounded flex items-center justify-center gap-1 px-1">
+                        <div className="flex-1 text-center">
+                            <div className="text-[8px] text-green-600">IN</div>
+                            <div className="text-[10px] font-bold text-green-700">{formatTime(records[0].checkInTime)}</div>
+                        </div>
+                        <div className="w-px h-6 bg-green-300"></div>
+                        <div className="flex-1 text-center">
+                            <div className="text-[8px] text-green-600">OUT</div>
+                            <div className="text-[10px] font-bold text-green-700">{formatTime(records[0].checkOutTime)}</div>
+                        </div>
+                    </div>
+                );
+            };
+
+            const renderRegister = () => (
+                <div>
+                    <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
+                        <div className="flex items-center justify-between mb-4">
+                            <button
+                                onClick={() => changeMonth(-1)}
+                                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                            >
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                </svg>
+                            </button>
+                            <div className="text-center">
+                                <div className="text-2xl font-bold text-gray-800">{monthName} {year}</div>
+                                <div className="text-sm text-gray-500">{filteredStudents.length} students</div>
+                            </div>
+                            <button
+                                onClick={() => changeMonth(1)}
+                                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                            >
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div className="flex gap-3">
+                            <input
+                                type="text"
+                                placeholder="Search student..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:border-blue-400 focus:outline-none"
+                            />
+                            <select
+                                value={classFilter}
+                                onChange={(e) => setClassFilter(e.target.value)}
+                                className="px-4 py-2 border border-gray-200 rounded-lg focus:border-blue-400 focus:outline-none"
+                            >
+                                {availableClasses.map(cls => (
+                                    <option key={cls} value={cls}>{cls}</option>
+                                ))}
+                            </select>
+                            <button
+                                onClick={exportToCSV}
+                                className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+                            >
+                                📥 Export CSV
+                            </button>
+                        </div>
+                    </div>
+
+                    {isLoading ? (
+                        <div className="flex items-center justify-center h-64 bg-white rounded-xl shadow-lg">
+                            <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-blue-500"></div>
+                        </div>
+                    ) : (
+                        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                            <div className="scroll-container">
+                                <div className="inline-block min-w-full">
+                                    <div className="sticky-header p-4 flex items-center gap-2 border-b">
+                                        <div className="sticky-col w-12 text-xs font-semibold">No.</div>
+                                        <div className="sticky-col w-48 text-xs font-semibold">Student Details</div>
+                                        {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => (
+                                            <div key={day} className="px-1">
+                                                {renderDateCell(day)}
+                                            </div>
+                                        ))}
+                                        <div className="w-20 ml-2 text-xs font-semibold">Present</div>
+                                        <div className="w-16 text-xs font-semibold">%</div>
+                                    </div>
+
+                                    {filteredStudents.map((student, idx) => {
+                                        const userAttendance = attendanceData[student.userId] || {};
+                                        let presentCount = 0;
+                                        let totalWorkingDays = 0;
+
+                                        for (let day = 1; day <= daysInMonth; day++) {
+                                            const date = new Date(year, month - 1, day);
+                                            if (date.getDay() !== 0) {
+                                                totalWorkingDays++;
+                                                const dateStr = date.toISOString().split('T')[0];
+                                                if (userAttendance[dateStr]?.length > 0) presentCount++;
+                                            }
+                                        }
+
+                                        const percentage = totalWorkingDays > 0 ? ((presentCount / totalWorkingDays) * 100).toFixed(0) : '0';
+
+                                        return (
+                                            <div key={student.userId} className="p-4 border-t flex items-center gap-2 hover:bg-gray-50">
+                                                <div className="sticky-col w-12 text-xs text-gray-600">{idx + 1}</div>
+                                                <div className="sticky-col w-48">
+                                                    <div className="text-sm font-semibold text-gray-800">{student.name}</div>
+                                                    <div className="text-xs text-gray-500">{student.rollNumber} • {student.class}</div>
+                                                </div>
+                                                {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => (
+                                                    <div key={day} className="px-1">
+                                                        {renderAttendanceCell(student.userId, day)}
+                                                    </div>
+                                                ))}
+                                                <div className="w-20 ml-2">
+                                                    <div className="px-2 py-1 bg-green-50 border border-green-200 rounded text-xs font-bold text-green-700 text-center">
+                                                        {presentCount}/{totalWorkingDays}
+                                                    </div>
+                                                </div>
+                                                <div className="w-16">
+                                                    <div className={`px-2 py-1 rounded text-xs font-bold text-center border ${
+                                                        parseFloat(percentage) >= 75 ? 'bg-green-50 text-green-700 border-green-200' :
+                                                        parseFloat(percentage) >= 50 ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                                                        'bg-red-50 text-red-700 border-red-200'
+                                                    }`}>
+                                                        {percentage}%
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+
+            const renderReports = () => {
+                const reportData = filteredStudents.map(student => {
+                    const userAttendance = attendanceData[student.userId] || {};
+                    let presentCount = 0;
+                    let totalWorkingDays = 0;
+
+                    for (let day = 1; day <= daysInMonth; day++) {
+                        const date = new Date(year, month - 1, day);
+                        if (date.getDay() !== 0) {
+                            totalWorkingDays++;
+                            const dateStr = date.toISOString().split('T')[0];
+                            if (userAttendance[dateStr]?.length > 0) presentCount++;
+                        }
+                    }
+
+                    const percentage = totalWorkingDays > 0 ? ((presentCount / totalWorkingDays) * 100).toFixed(1) : '0.0';
+
+                    return {
+                        ...student,
+                        presentDays: presentCount,
+                        absentDays: totalWorkingDays - presentCount,
+                        totalDays: totalWorkingDays,
+                        percentage: parseFloat(percentage)
+                    };
+                }).sort((a, b) => b.percentage - a.percentage);
+
+                return (
+                    <div>
+                        <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
+                            <div className="flex items-center justify-between mb-6">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-gray-800">Monthly Report</h2>
+                                    <p className="text-sm text-gray-500">{monthName} {year}</p>
+                                </div>
+                                <button
+                                    onClick={exportToCSV}
+                                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+                                >
+                                    📥 Export Report
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                                <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-6 text-white">
+                                    <div className="text-4xl mb-2">🌟</div>
+                                    <div className="text-3xl font-bold mb-1">
+                                        {reportData.filter(s => s.percentage >= 75).length}
+                                    </div>
+                                    <div className="text-sm opacity-90">Excellent (≥75%)</div>
+                                </div>
+                                <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-6 text-white">
+                                    <div className="text-4xl mb-2">⚠️</div>
+                                    <div className="text-3xl font-bold mb-1">
+                                        {reportData.filter(s => s.percentage >= 50 && s.percentage < 75).length}
+                                    </div>
+                                    <div className="text-sm opacity-90">Average (50-74%)</div>
+                                </div>
+                                <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-xl p-6 text-white">
+                                    <div className="text-4xl mb-2">🚨</div>
+                                    <div className="text-3xl font-bold mb-1">
+                                        {reportData.filter(s => s.percentage < 50).length}
+                                    </div>
+                                    <div className="text-sm opacity-90">Poor (&lt;50%)</div>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-3">
+                                <input
+                                    type="text"
+                                    placeholder="Search..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:border-blue-400 focus:outline-none"
+                                />
+                                <select
+                                    value={classFilter}
+                                    onChange={(e) => setClassFilter(e.target.value)}
+                                    className="px-4 py-2 border border-gray-200 rounded-lg focus:border-blue-400 focus:outline-none"
+                                >
+                                    {availableClasses.map(cls => (
+                                        <option key={cls} value={cls}>{cls}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3">
+                            {reportData.map((student, idx) => (
+                                <div key={student.userId} className="bg-white rounded-xl shadow-lg p-6 hover:shadow-xl transition-shadow">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div className="flex items-center gap-4">
+                                            <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white text-lg font-bold ${
+                                                student.percentage >= 75 ? 'bg-green-500' :
+                                                student.percentage >= 50 ? 'bg-orange-500' :
+                                                'bg-red-500'
+                                            }`}>
+                                                {idx + 1}
+                                            </div>
+                                            <div>
+                                                <div className="text-lg font-bold text-gray-800">{student.name}</div>
+                                                <div className="text-sm text-gray-500">{student.rollNumber} • {student.class}</div>
+                                            </div>
+                                        </div>
+                                        <div className={`px-4 py-2 rounded-lg font-bold text-lg border-2 ${
+                                            student.percentage >= 75 ? 'bg-green-50 text-green-700 border-green-300' :
+                                            student.percentage >= 50 ? 'bg-orange-50 text-orange-700 border-orange-300' :
+                                            'bg-red-50 text-red-700 border-red-300'
+                                        }`}>
+                                            {student.percentage.toFixed(1)}%
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-3 mb-3">
+                                        <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                                            <div className="text-2xl font-bold text-green-700">{student.presentDays}</div>
+                                            <div className="text-xs text-green-600">Present Days</div>
+                                        </div>
+                                        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-center">
+                                            <div className="text-2xl font-bold text-red-700">{student.absentDays}</div>
+                                            <div className="text-xs text-red-600">Absent Days</div>
+                                        </div>
+                                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
+                                            <div className="text-2xl font-bold text-blue-700">{student.totalDays}</div>
+                                            <div className="text-xs text-blue-600">Total Days</div>
+                                        </div>
+                                    </div>
+                                    <div className="bg-gray-100 rounded-full h-3 overflow-hidden">
+                                        <div 
+                                            className={`h-full transition-all ${
+                                                student.percentage >= 75 ? 'bg-green-500' :
+                                                student.percentage >= 50 ? 'bg-orange-500' :
+                                                'bg-red-500'
+                                            }`}
+                                            style={{ width: `${student.percentage}%` }}
+                                        ></div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+            };
+
+            const renderStudents = () => (
+                <div>
+                    <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
+                        <div className="flex items-center justify-between mb-6">
+                            <div>
+                                <h2 className="text-2xl font-bold text-gray-800">Students Management</h2>
+                                <p className="text-sm text-gray-500">{students.length} total students</p>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3">
+                            <input
+                                type="text"
+                                placeholder="Search by name, roll number..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:border-blue-400 focus:outline-none"
+                            />
+                            <select
+                                value={classFilter}
+                                onChange={(e) => setClassFilter(e.target.value)}
+                                className="px-4 py-2 border border-gray-200 rounded-lg focus:border-blue-400 focus:outline-none"
+                            >
+                                {availableClasses.map(cls => (
+                                    <option key={cls} value={cls}>{cls}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {filteredStudents.map((student, idx) => (
+                            <div key={student.userId} className="bg-white rounded-xl shadow-lg p-6 hover:shadow-xl transition-shadow">
+                                <div className="flex items-start justify-between mb-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-lg">
+                                            {student.name.charAt(0)}
+                                        </div>
+                                        <div>
+                                            <div className="font-bold text-gray-800">{student.name}</div>
+                                            <div className="text-xs text-gray-500">{student.rollNumber}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="space-y-2 text-sm">
+                                    <div className="flex items-center gap-2 text-gray-600">
+                                        <span className="font-semibold">Class:</span>
+                                        <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs">{student.class}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 text-gray-600">
+                                        <span className="font-semibold">Phone:</span>
+                                        <span>{student.phone || 'N/A'}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 text-gray-600">
+                                        <span className="font-semibold">RFID:</span>
+                                        <span className="text-xs bg-purple-50 text-purple-700 px-2 py-1 rounded">
+                                            {student.rfidNumber || 'Not assigned'}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+
+            const Sidebar = () => (
+                <div className={`fixed left-0 top-0 h-full bg-white shadow-xl z-50 transition-all duration-300 ${sidebarOpen ? 'w-64' : 'w-20'}`}>
+                    <div className="flex flex-col h-full">
+                        <div className="p-4 border-b flex items-center justify-between">
+                            {sidebarOpen && <h1 className="text-xl font-bold text-blue-600">AttendEase</h1>}
+                            <button
+                                onClick={() => setSidebarOpen(!sidebarOpen)}
+                                className="p-2 hover:bg-gray-100 rounded-lg"
+                            >
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <nav className="flex-1 p-4 space-y-2">
+                            {[
+                                { id: 'home', label: 'Dashboard', icon: '🏠' },
+                                { id: 'register', label: 'Register', icon: '📅' },
+                                { id: 'reports', label: 'Reports', icon: '📊' },
+                                { id: 'students', label: 'Students', icon: '👥' }
+                            ].map(item => (
+                                <button
+                                    key={item.id}
+                                    onClick={() => setCurrentPage(item.id)}
+                                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+                                        currentPage === item.id
+                                            ? 'bg-blue-600 text-white shadow-lg'
+                                            : 'text-gray-700 hover:bg-gray-100'
+                                    }`}
+                                >
+                                    <span className="text-2xl">{item.icon}</span>
+                                    {sidebarOpen && <span className="font-medium">{item.label}</span>}
+                                </button>
+                            ))}
+                        </nav>
+
+                        <div className="p-4 border-t">
+                            <div className={`flex items-center gap-3 ${sidebarOpen ? '' : 'justify-center'}`}>
+                                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold">
+                                    A
+                                </div>
+                                {sidebarOpen && (
+                                    <div>
+                                        <div className="text-sm font-semibold">Admin</div>
+                                        <div className="text-xs text-gray-500">Administrator</div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            return (
+                <div className="min-h-screen bg-gray-50">
+                    <Sidebar />
+                    
+                    <div className={`transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-20'}`}>
+                        <div className="p-6 max-w-[1800px] mx-auto">
+                            <div className="mb-6">
+                                <h1 className="text-3xl font-bold text-gray-800">
+                                    {currentPage === 'home' && 'Dashboard'}
+                                    {currentPage === 'register' && 'Monthly Register'}
+                                    {currentPage === 'reports' && 'Reports'}
+                                    {currentPage === 'students' && 'Students'}
+                                </h1>
+                            </div>
+
+                            {currentPage === 'home' && renderHome()}
+                            {currentPage === 'register' && renderRegister()}
+                            {currentPage === 'reports' && renderReports()}
+                            {currentPage === 'students' && renderStudents()}
+                        </div>
+                    </div>
+
+                    {showHolidayDialog && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                            <div className="bg-white rounded-xl p-6 w-96 shadow-2xl">
+                                <h3 className="text-xl font-bold mb-4">Add Holiday</h3>
+                                <p className="text-sm text-gray-500 mb-4">Date: {selectedDate}</p>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium mb-2">Holiday Name</label>
+                                        <input
+                                            type="text"
+                                            value={holidayForm.name}
+                                            onChange={(e) => setHolidayForm({...holidayForm, name: e.target.value})}
+                                            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:border-blue-400 focus:outline-none"
+                                            placeholder="e.g., Diwali"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium mb-2">Reason (Optional)</label>
+                                        <input
+                                            type="text"
+                                            value={holidayForm.reason}
+                                            onChange={(e) => setHolidayForm({...holidayForm, reason: e.target.value})}
+                                            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:border-blue-400 focus:outline-none"
+                                            placeholder="e.g., Festival"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex gap-3 mt-6">
+                                    <button
+                                        onClick={() => setShowHolidayDialog(false)}
+                                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 font-medium"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleAddHoliday}
+                                        className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+                                    >
+                                        Add Holiday
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<AdminDashboard />);
+    </script>
+</body>
+</html>

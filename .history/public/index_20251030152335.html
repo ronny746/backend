@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unacademy Admin</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        .unacademy-green { background: linear-gradient(135deg, #08BD80 0%, #06A86D 100%); }
+        .scroll-x { overflow-x: auto; scrollbar-width: thin; }
+        .scroll-x::-webkit-scrollbar { height: 8px; }
+        .scroll-x::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
+        .scroll-x::-webkit-scrollbar-thumb { background: #08BD80; border-radius: 10px; }
+        .sticky-left { position: sticky; left: 0; z-index: 10; background: white; }
+        .sticky-top { position: sticky; top: 0; z-index: 5; background: white; }
+        .cell-hover:hover { transform: scale(1.08); transition: transform 0.15s ease; }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+        const API_BASE = 'http://109.106.255.78:5300/api';
+
+        const AdminDashboard = () => {
+            const [page, setPage] = useState('home');
+            const [sidebar, setSidebar] = useState(true);
+            const [students, setStudents] = useState([]);
+            const [attendance, setAttendance] = useState({});
+            const [holidays, setHolidays] = useState([]);
+            const [stats, setStats] = useState({ totalStudents: 0, presentToday: 0, absentToday: 0, qrScans: 0, rfidScans: 0, attendancePercentage: 0 });
+            const [month, setMonth] = useState(() => {
+                const d = new Date();
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            });
+            const [loading, setLoading] = useState(false);
+            const [file, setFile] = useState(null);
+            const [search, setSearch] = useState('');
+            const [classFilter, setClassFilter] = useState('All');
+            const [showDialog, setShowDialog] = useState(false);
+            const [selDate, setSelDate] = useState('');
+            const [holidayForm, setHolidayForm] = useState({ name: '', reason: '' });
+            const [view, setView] = useState('monthly');
+            const [week, setWeek] = useState(0);
+
+            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+            const { yr, mon, name, days } = useMemo(() => {
+                const [y, m] = month.split('-').map(Number);
+                return { yr: y, mon: m, name: monthNames[m - 1], days: new Date(y, m, 0).getDate() };
+            }, [month]);
+
+            const weeks = useMemo(() => {
+                const w = [];
+                let curr = [];
+                for (let d = 1; d <= days; d++) {
+                    const dt = new Date(yr, mon - 1, d);
+                    if (dt.getDay() === 0 && curr.length > 0) { w.push([...curr]); curr = []; }
+                    if (dt.getDay() !== 0) curr.push(d);
+                }
+                if (curr.length > 0) w.push(curr);
+                return w;
+            }, [yr, mon, days]);
+
+            const displayDays = useMemo(() => {
+                if (view === 'weekly' && weeks[week]) return weeks[week];
+                return Array.from({ length: days }, (_, i) => i + 1).filter(d => new Date(yr, mon - 1, d).getDay() !== 0);
+            }, [view, week, days, yr, mon, weeks]);
+
+            const workingDays = useMemo(() => {
+                let c = 0;
+                const hDates = holidays.map(h => h.date);
+                for (let d = 1; d <= days; d++) {
+                    const dt = new Date(yr, mon - 1, d);
+                    const ds = dt.toISOString().split('T')[0];
+                    if (dt.getDay() !== 0 && !hDates.includes(ds)) c++;
+                }
+                return c;
+            }, [days, yr, mon, holidays]);
+
+            const classes = useMemo(() => ['All', ...new Set(students.map(s => s.class))], [students]);
+
+            useEffect(() => { loadData(); loadStats(); }, [month, page]);
+
+            const loadData = async () => {
+                setLoading(true);
+                try {
+                    const sr = await fetch(`${API_BASE}/students`);
+                    if (sr.ok) setStudents(await sr.json());
+
+                    const start = `${yr}-${String(mon).padStart(2, '0')}-01`;
+                    const end = `${yr}-${String(mon).padStart(2, '0')}-${String(days).padStart(2, '0')}`;
+                    const ar = await fetch(`${API_BASE}/attendance/range?start=${start}&end=${end}`);
+                    if (ar.ok) {
+                        const res = await ar.json();
+                        const att = res.attendance || [];
+                        const hol = res.holidays || [];
+                        const proc = {};
+                        att.forEach(r => {
+                            const u = r.userId?.toString() || '';
+                            const d = r.date?.toString() || '';
+                            if (!u || !d) return;
+                            if (!proc[u]) proc[u] = {};
+                            if (!proc[u][d]) proc[u][d] = [];
+                            proc[u][d].push({ status: 'P', checkInTime: r.checkInTime, checkOutTime: r.checkOutTime, scanType: r.scanType || 'qr' });
+                        });
+                        setAttendance(proc);
+                        setHolidays(hol);
+                    }
+                } catch (e) {
+                    notify(`Error: ${e.message}`, 1);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const loadStats = async () => {
+                try {
+                    const r = await fetch(`${API_BASE}/attendance/stats`);
+                    if (r.ok) setStats(await r.json());
+                } catch (e) {}
+            };
+
+            const upload = async () => {
+                if (!file) return notify('Select file', 1);
+                const fd = new FormData();
+                fd.append('studentFile', file);
+                try {
+                    setLoading(true);
+                    const r = await fetch(`${API_BASE}/import-students`, { method: 'POST', body: fd });
+                    if (r.ok) {
+                        const d = await r.json();
+                        notify(`${d.count} students imported`);
+                        setFile(null);
+                        loadData();
+                    } else {
+                        notify('Upload failed', 1);
+                    }
+                } catch (e) {
+                    notify(`Error: ${e.message}`, 1);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const downloadSample = () => {
+                const csv = 'S.N,Name,Roll number,Mobile,Class,RFID,Qr link\n1,Rahul Kumar,R2024001,9876543210,IIT JEE 2026,RFID001,https://example.com/qr?data=%7B%22roll_number%22%3A%22R2024001%22%7D';
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'student_sample.csv';
+                a.click();
+                URL.revokeObjectURL(url);
+                notify('Sample downloaded');
+            };
+
+            const addHoliday = async () => {
+                if (!holidayForm.name.trim()) return notify('Enter name', 1);
+                try {
+                    const r = await fetch(`${API_BASE}/holidays`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ date: selDate, name: holidayForm.name, reason: holidayForm.reason })
+                    });
+                    if (r.ok) {
+                        notify('Holiday added');
+                        loadData();
+                        setShowDialog(false);
+                        setHolidayForm({ name: '', reason: '' });
+                    }
+                } catch (e) {
+                    notify(`Error: ${e.message}`, 1);
+                }
+            };
+
+            const exportCSV = () => {
+                let csv = 'S.No,Name,Roll,Class,Phone,';
+                displayDays.forEach(d => csv += `${d},`);
+                csv += 'Present,Absent,Working Days,Percentage\n';
+                filtered.forEach((s, i) => {
+                    const ua = attendance[s.userId] || {};
+                    csv += `${i + 1},${s.name},${s.rollNumber},${s.class},${s.phone},`;
+                    let p = 0, w = 0;
+                    displayDays.forEach(d => {
+                        const dt = new Date(yr, mon - 1, d);
+                        const ds = dt.toISOString().split('T')[0];
+                        const h = getHol(ds);
+                        if (!h) {
+                            w++;
+                            const has = ua[ds]?.length > 0;
+                            csv += `${has ? 'P' : 'A'},`;
+                            if (has) p++;
+                        } else {
+                            csv += 'H,';
+                        }
+                    });
+                    const pct = w > 0 ? ((p / w) * 100).toFixed(1) : '0.0';
+                    csv += `${p},${w - p},${w},${pct}%\n`;
+                });
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Attendance_${view === 'weekly' ? `Week${week + 1}_` : ''}${name}_${yr}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+                notify('CSV exported');
+            };
+
+            const notify = (msg, err = 0) => {
+                const snack = document.createElement('div');
+                snack.className = `fixed bottom-4 right-4 px-5 py-3 rounded-lg shadow-xl text-white text-sm font-medium z-50 ${err ? 'bg-red-500' : 'bg-green-500'}`;
+                snack.textContent = msg;
+                document.body.appendChild(snack);
+                setTimeout(() => snack.remove(), 3000);
+            };
+
+            const changeMonth = (dir) => {
+                const [y, m] = month.split('-').map(Number);
+                const nd = new Date(y, m - 1 + dir, 1);
+                setMonth(`${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, '0')}`);
+                setWeek(0);
+            };
+
+            const fmt = (iso) => !iso || iso.length < 16 ? '--' : iso.substring(11, 16);
+            const getHol = (ds) => holidays.find(h => h.date === ds) || null;
+
+            const filtered = useMemo(() => {
+                let f = students;
+                if (classFilter !== 'All') f = f.filter(s => s.class === classFilter);
+                if (search.trim()) {
+                    const q = search.toLowerCase();
+                    f = f.filter(s => s.name.toLowerCase().includes(q) || s.rollNumber.toLowerCase().includes(q) || s.userId.toLowerCase().includes(q));
+                }
+                return f;
+            }, [students, search, classFilter]);
+
+            const Home = () => (
+                <div className="space-y-6 fade-in">
+                    <div className="unacademy-green rounded-2xl p-8 text-white shadow-xl">
+                        <h1 className="text-4xl font-bold mb-2">Unacademy Admin</h1>
+                        <p className="text-green-50 text-lg">Advanced Attendance Management System</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+                        {[
+                            { l: 'Total Students', v: stats.totalStudents, c: 'from-blue-500 to-blue-600', i: '👥' },
+                            { l: 'Present Today', v: stats.presentToday, c: 'from-green-500 to-green-600', i: '✓' },
+                            { l: 'Absent Today', v: stats.absentToday, c: 'from-red-500 to-red-600', i: '✗' },
+                            { l: 'Attendance', v: `${stats.attendancePercentage}%`, c: 'from-purple-500 to-purple-600', i: '📈' }
+                        ].map((s, i) => (
+                            <div key={i} className="bg-white rounded-2xl shadow-lg hover:shadow-2xl transition-all p-6">
+                                <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${s.c} flex items-center justify-center text-3xl mb-4 shadow-lg`}>{s.i}</div>
+                                <div className="text-4xl font-bold text-gray-800 mb-2">{s.v}</div>
+                                <div className="text-sm font-semibold text-gray-600">{s.l}</div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="bg-white rounded-2xl shadow-lg p-6">
+                            <h3 className="text-xl font-bold mb-5 flex items-center gap-3 text-gray-800"><span className="text-3xl">📊</span>Scan Statistics</h3>
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between p-5 bg-gradient-to-r from-blue-50 to-blue-100 rounded-2xl border-2 border-blue-200">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-14 h-14 rounded-2xl bg-blue-500 flex items-center justify-center text-white text-2xl shadow-lg">📱</div>
+                                        <div>
+                                            <div className="text-base font-bold text-gray-800">QR Code Scans</div>
+                                            <div className="text-xs text-gray-500">Mobile scanning</div>
+                                        </div>
+                                    </div>
+                                    <div className="text-3xl font-bold text-blue-600">{stats.qrScans}</div>
+                                </div>
+                                <div className="flex items-center justify-between p-5 bg-gradient-to-r from-purple-50 to-purple-100 rounded-2xl border-2 border-purple-200">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-14 h-14 rounded-2xl bg-purple-500 flex items-center justify-center text-white text-2xl shadow-lg">💳</div>
+                                        <div>
+                                            <div className="text-base font-bold text-gray-800">RFID Card Scans</div>
+                                            <div className="text-xs text-gray-500">Card reader</div>
+                                        </div>
+                                    </div>
+                                    <div className="text-3xl font-bold text-purple-600">{stats.rfidScans}</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="bg-white rounded-2xl shadow-lg p-6">
+                            <h3 className="text-xl font-bold mb-5 flex items-center gap-3 text-gray-800"><span className="text-3xl">🎯</span>Quick Actions</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                                {[
+                                    { p: 'register', i: '📅', l: 'Register', c: 'unacademy-green' },
+                                    { p: 'reports', i: '📊', l: 'Reports', c: 'bg-gradient-to-br from-blue-500 to-blue-600' },
+                                    { p: 'students', i: '👥', l: 'Students', c: 'bg-gradient-to-br from-purple-500 to-purple-600' },
+                                    { onClick: downloadSample, i: '📥', l: 'Sample', c: 'bg-gradient-to-br from-orange-500 to-orange-600' }
+                                ].map((a, i) => (
+                                    <button key={i} onClick={a.onClick || (() => setPage(a.p))} className={`p-5 ${a.c} text-white rounded-2xl hover:shadow-2xl transition-all shadow-lg`}>
+                                        <div className="text-3xl mb-2">{a.i}</div>
+                                        <div className="text-sm font-bold">{a.l}</div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                    <div className="bg-white rounded-2xl shadow-lg p-6">
+                        <h3 className="text-xl font-bold mb-5 flex items-center gap-3 text-gray-800"><span className="text-3xl">📚</span>Upload Students</h3>
+                        <div className="space-y-4">
+                            <div className="border-2 border-dashed border-gray-300 rounded-2xl p-10 text-center hover:border-green-400 transition-all bg-gray-50">
+                                <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => setFile(e.target.files[0])} className="hidden" id="file" />
+                                <label htmlFor="file" className="cursor-pointer">
+                                    <div className="text-6xl mb-4">📄</div>
+                                    <div className="text-base font-bold text-gray-700 mb-1">{file ? file.name : 'Click to upload'}</div>
+                                    <div className="text-sm text-gray-500">Excel or CSV file</div>
+                                </label>
+                            </div>
+                            <div className="flex gap-4">
+                                <button onClick={downloadSample} className="flex-1 px-5 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 font-semibold">📥 Sample</button>
+                                <button onClick={upload} disabled={!file || loading} className="flex-1 px-5 py-3 unacademy-green text-white rounded-xl hover:shadow-xl disabled:bg-gray-300 font-semibold">{loading ? '⏳ Uploading...' : '📤 Upload'}</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            
+
+            const Students = () => (
+                <div className="fade-in">
+                    <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
+                        <h2 className="text-2xl font-bold text-gray-800 mb-5">Student Management</h2>
+                        <div className="flex gap-3 mb-5">
+                            <input type="text" placeholder="🔍 Search by name, roll number..." value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none" />
+                            <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className="px-5 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none font-medium">
+                                {classes.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                        {filtered.map(s => (
+                            <div key={s.userId} className="bg-white rounded-2xl shadow-lg p-6 hover:shadow-2xl transition-all">
+                                <div className="flex items-start gap-4">
+                                    <div className="w-14 h-14 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white text-xl font-bold shadow-lg">{s.name.charAt(0)}</div>
+                                    <div className="flex-1">
+                                        <h3 className="text-lg font-bold text-gray-800 mb-1">{s.name}</h3>
+                                        <p className="text-sm text-gray-600 mb-2">{s.rollNumber}</p>
+                                        <div className="space-y-1">
+                                            <div className="flex items-center gap-2 text-xs">
+                                                <span className="text-gray-500">📚</span>
+                                                <span className="font-semibold text-gray-700">{s.class}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2 text-xs">
+                                                <span className="text-gray-500">📱</span>
+                                                <span className="font-semibold text-gray-700">{s.phone}</span>
+                                            </div>
+                                            {s.rfid && (
+                                                <div className="flex items-center gap-2 text-xs">
+                                                    <span className="text-gray-500">💳</span>
+                                                    <span className="font-semibold text-gray-700">{s.rfid}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+
+            const Reports = () => (
+                <div className="fade-in">
+                    <div className="bg-white rounded-2xl shadow-lg p-8">
+                        <h2 className="text-3xl font-bold text-gray-800 mb-6 flex items-center gap-3">
+                            <span className="text-4xl">📊</span>
+                            Detailed Reports
+                        </h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="p-6 bg-gradient-to-br from-green-50 to-green-100 rounded-2xl border-2 border-green-200">
+                                <h3 className="text-xl font-bold text-gray-800 mb-3">Monthly Summary</h3>
+                                <div className="space-y-2">
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-sm text-gray-700">Total Students:</span>
+                                        <span className="text-lg font-bold text-gray-800">{stats.totalStudents}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-sm text-gray-700">Working Days:</span>
+                                        <span className="text-lg font-bold text-gray-800">{workingDays}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-sm text-gray-700">Avg Attendance:</span>
+                                        <span className="text-lg font-bold text-green-600">{stats.attendancePercentage}%</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="p-6 bg-gradient-to-br from-blue-50 to-blue-100 rounded-2xl border-2 border-blue-200">
+                                <h3 className="text-xl font-bold text-gray-800 mb-3">Scan Methods</h3>
+                                <div className="space-y-2">
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-sm text-gray-700">QR Scans:</span>
+                                        <span className="text-lg font-bold text-blue-600">{stats.qrScans}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-sm text-gray-700">RFID Scans:</span>
+                                        <span className="text-lg font-bold text-purple-600">{stats.rfidScans}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-sm text-gray-700">Total Scans:</span>
+                                        <span className="text-lg font-bold text-gray-800">{stats.qrScans + stats.rfidScans}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="mt-6 flex gap-4">
+                            <button onClick={exportCSV} className="flex-1 px-6 py-4 unacademy-green text-white rounded-xl hover:shadow-xl font-bold text-lg">📥 Download Full Report</button>
+                            <button onClick={() => setPage('register')} className="flex-1 px-6 py-4 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 font-bold text-lg">👁️ View Register</button>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            return (
+                <div className="min-h-screen flex">
+                    <div className={`${sidebar ? 'w-64' : 'w-20'} bg-white shadow-2xl transition-all duration-300 flex flex-col`}>
+                        <div className="p-6 unacademy-green text-white">
+                            <div className="flex items-center justify-between">
+                                {sidebar && <h1 className="text-2xl font-bold">Unacademy</h1>}
+                                <button onClick={() => setSidebar(!sidebar)} className="p-2 hover:bg-green-600 rounded-lg transition-colors">
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={sidebar ? "M4 6h16M4 12h16M4 18h16" : "M6 18L18 6M6 6l12 12"} />
+                                    </svg>
+                                </button>
+                            </div>
+                            {sidebar && <p className="text-green-100 text-sm mt-2">Admin Dashboard</p>}
+                        </div>
+                        <nav className="flex-1 p-4">
+                            {[
+                                { p: 'home', i: '🏠', l: 'Home' },
+                                { p: 'register', i: '📅', l: 'Register' },
+                                { p: 'students', i: '👥', l: 'Students' },
+                                { p: 'reports', i: '📊', l: 'Reports' }
+                            ].map(m => (
+                                <button key={m.p} onClick={() => setPage(m.p)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-2 transition-all ${page === m.p ? 'unacademy-green text-white shadow-lg' : 'text-gray-700 hover:bg-gray-100'}`}>
+                                    <span className="text-2xl">{m.i}</span>
+                                    {sidebar && <span className="font-semibold">{m.l}</span>}
+                                </button>
+                            ))}
+                        </nav>
+                    </div>
+                    <div className="flex-1 p-8 overflow-y-auto">
+                        {page === 'home' && <Home />}
+                        {page === 'register' && <Register />}
+                        {page === 'students' && <Students />}
+                        {page === 'reports' && <Reports />}
+                    </div>
+                    {showDialog && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowDialog(false)}>
+                            <div className="bg-white rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                                <h3 className="text-2xl font-bold mb-6 text-gray-800">Add Holiday</h3>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 mb-2">Date</label>
+                                        <input type="text" value={selDate} readOnly className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl text-gray-800 font-medium" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 mb-2">Holiday Name</label>
+                                        <input type="text" value={holidayForm.name} onChange={(e) => setHolidayForm({ ...holidayForm, name: e.target.value })} placeholder="e.g., Republic Day" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 mb-2">Reason (Optional)</label>
+                                        <textarea value={holidayForm.reason} onChange={(e) => setHolidayForm({ ...holidayForm, reason: e.target.value })} placeholder="Reason for holiday..." className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none resize-none" rows={3}></textarea>
+                                    </div>
+                                </div>
+                                <div className="flex gap-3 mt-6">
+                                    <button onClick={() => setShowDialog(false)} className="flex-1 px-5 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 font-semibold">Cancel</button>
+                                    <button onClick={addHoliday} className="flex-1 px-5 py-3 unacademy-green text-white rounded-xl hover:shadow-xl font-semibold">Add Holiday</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        ReactDOM.render(<AdminDashboard />, document.getElementById('root'));
+    </script>
+</body>
+</html>
