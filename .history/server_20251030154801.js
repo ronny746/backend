@@ -575,7 +575,7 @@ app.get('/api/attendance/range', async (req, res) => {
         checkInTime: formatTimeForFlutter(record.checkInTime),
         checkOutTime: record.checkOutTime ? formatTimeForFlutter(record.checkOutTime) : null,
         isHoliday,
-        holiday:  null
+        holiday: isHoliday ? { date: record.date, ...holidayMap[record.date] } : null
       };
     });
 
