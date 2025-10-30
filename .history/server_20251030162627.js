@@ -104,13 +104,10 @@ function extractQRData(qrLink) {
 function formatTimeForFlutter(date) {
   if (!date) return null;
   const d = new Date(date);
-  // Convert to local ISO string (not UTC)
-  const localISO = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, -1); // remove trailing 'Z'
-  return localISO;
+  // Subtract 5 hours 30 minutes (in milliseconds)
+  const adjusted = new Date(d.getTime() - (5 * 60 + 30) * 60 * 1000);
+  return adjusted.toISOString();
 }
-
 
 
 // Routes
