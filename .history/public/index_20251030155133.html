@@ -54,14 +54,6 @@
 
             const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-            // helper to produce YYYY-MM-DD based on local timezone
-            const toDateKey = (d) => {
-                if (!d) return '';
-                const dt = d instanceof Date ? d : new Date(d);
-                // en-CA gives YYYY-MM-DD
-                return dt.toLocaleDateString('en-CA');
-            };
-
             const { yr, mon, name, days } = useMemo(() => {
                 const [y, m] = month.split('-').map(Number);
                 return { yr: y, mon: m, name: monthNames[m - 1], days: new Date(y, m, 0).getDate() };
@@ -89,7 +81,8 @@
                 const hDates = holidays.map(h => h.date);
                 for (let d = 1; d <= days; d++) {
                     const dt = new Date(yr, mon - 1, d);
-                    const ds = toDateKey(dt);
+                    const ds = dt.toLocaleDateString('en-CA');
+
                     if (dt.getDay() !== 0 && !hDates.includes(ds)) c++;
                 }
                 return c;
@@ -110,16 +103,13 @@
                     const ar = await fetch(`${API_BASE}/attendance/range?start=${start}&end=${end}`);
                     if (ar.ok) {
                         const res = await ar.json();
-                        // normalize attendance dates and sort chronologically
-                        const att = (res.attendance || []).sort((a, b) => new Date(a.date) - new Date(b.date));
+                        const att = res.attendance || [];
                         const hol = res.holidays || [];
                         const proc = {};
                         att.forEach(r => {
                             const u = r.userId?.toString() || '';
-                            if (!u) return;
-                            // normalize date to local YYYY-MM-DD
-                            const d = toDateKey(r.date);
-                            if (!d) return;
+                            const d = r.date?.toString() || '';
+                            if (!u || !d) return;
                             if (!proc[u]) proc[u] = {};
                             if (!proc[u][d]) proc[u][d] = [];
                             proc[u][d].push({ status: 'P', checkInTime: r.checkInTime, checkOutTime: r.checkOutTime, scanType: r.scanType || 'qr' });
@@ -217,7 +207,7 @@
                     let p = 0, w = 0;
                     displayDays.forEach(d => {
                         const dt = new Date(yr, mon - 1, d);
-                        const ds = toDateKey(dt);
+                        const ds = dt.toISOString().split('T')[0];
                         const h = getHol(ds);
                         if (!h) {
                             w++;
@@ -264,7 +254,7 @@
                 if (classFilter !== 'All') f = f.filter(s => s.class === classFilter);
                 if (search.trim()) {
                     const q = search.toLowerCase();
-                    f = f.filter(s => (s.name || '').toLowerCase().includes(q) || (s.rollNumber || '').toLowerCase().includes(q) || (s.userId || '').toString().toLowerCase().includes(q));
+                    f = f.filter(s => s.name.toLowerCase().includes(q) || s.rollNumber.toLowerCase().includes(q) || s.userId.toLowerCase().includes(q));
                 }
                 return f;
             }, [students, search, classFilter]);
@@ -353,12 +343,12 @@
                                         <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 min-w-[200px] sticky left-16 bg-gray-50 z-30 border-r-2 border-gray-200">Student</th>
                                         {displayDays.map(d => {
                                             const dt = new Date(yr, mon - 1, d);
-                                            const hol = getHol(toDateKey(dt));
-                                            const today = toDateKey(dt) === toDateKey(new Date());
+                                            const hol = getHol(dt.toISOString().split('T')[0]);
+                                            const today = dt.toDateString() === new Date().toDateString();
                                             const dn = ['S', 'M', 'T', 'W', 'T', 'F', 'S'][dt.getDay()];
                                             return (
                                                 <th key={d} onClick={() => {
-                                                    const ds = toDateKey(dt);
+                                                    const ds = dt.toISOString().split('T')[0];
                                                     setSelDate(ds);
                                                     const h = getHol(ds);
                                                     if (h) {
@@ -385,7 +375,7 @@
                                         let p = 0, w = 0;
                                         displayDays.forEach(d => {
                                             const dt = new Date(yr, mon - 1, d);
-                                            const ds = toDateKey(dt);
+                                            const ds = dt.toISOString().split('T')[0];
                                             if (!getHol(ds)) { w++; if (ua[ds]?.length > 0) p++; }
                                         });
                                         const pct = w > 0 ? ((p / w) * 100).toFixed(1) : '0';
@@ -398,7 +388,7 @@
                                                 </td>
                                                 {displayDays.map(d => {
                                                     const dt = new Date(yr, mon - 1, d);
-                                                    const ds = toDateKey(dt);
+                                                    const ds = dt.toISOString().split('T')[0];
                                                     const hol = getHol(ds);
                                                     const recs = ua[ds] || [];
                                                     const firstRec = recs[0];
