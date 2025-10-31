@@ -128,6 +128,7 @@
       const [studentForm, setStudentForm] = useState({ name:'', rollNumber:'', phone:'', class:'', rfid:'' });
       const [view, setView] = useState('monthly');
       const [week, setWeek] = useState(0);
+      const [showControls, setShowControls] = useState(true);
 
       // tooltip portal state
       const [tooltip, setTooltip] = useState({ open:false, left:0, top:0, placement:'above', rec:null });
@@ -303,19 +304,16 @@
 
       // tooltip portal helpers
       const showTooltip = (e, rec) => {
-        // e.currentTarget is the cell's present badge
         const rect = e.currentTarget.getBoundingClientRect();
         const centerX = rect.left + rect.width/2;
         const spaceAbove = rect.top;
         const spaceBelow = window.innerHeight - rect.bottom;
-        // prefer above unless there's more space below
         const placement = (spaceAbove > 80 || spaceAbove > spaceBelow) ? 'above' : 'below';
         const top = placement === 'above' ? rect.top - 10 : rect.bottom + 10;
         setTooltip({ open:true, left: centerX, top, placement, rec });
       };
       const hideTooltip = () => setTooltip({ open:false, left:0, top:0, placement:'above', rec:null });
 
-      // on mobile tap show briefly
       const touchShowThenHide = (e, rec) => {
         e.preventDefault();
         showTooltip(e, rec);
@@ -324,51 +322,65 @@
 
       return (
         <div className="min-h-screen p-3 md:p-8">
-          <div className="glass-effect rounded-3xl shadow-2xl p-5 md:p-8 mb-6 animate-in">
-            <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-6">
-              <div>
-                <h1 className="text-2xl md:text-4xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent mb-2">📊 Attendance Register</h1>
-                <p className="text-xs md:text-sm text-gray-600 font-medium">{name} {yr} • {filtered.length} students • {workingDays} working days</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button onClick={() => openDialog('student')} className="px-4 py-2.5 text-xs md:text-sm btn-gradient text-white rounded-xl font-semibold shadow-lg">➕ Add Student</button>
-                <button onClick={() => openDialog('upload')} className="px-4 py-2.5 text-xs md:text-sm bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-semibold shadow-lg hover:shadow-blue-500/50 transition">📤 Upload</button>
-                <button onClick={downloadSample} className="px-4 py-2.5 text-xs md:text-sm bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl font-semibold shadow-lg hover:shadow-purple-500/50 transition">📥 Sample</button>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between mb-6">
-              <button onClick={() => changeMonth(-1)} className="p-3 rounded-xl glass-card hover:bg-white/20 transition">
-                <svg className="w-5 h-5 text-purple-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" /></svg>
-              </button>
-
-              <div className="flex gap-3">
-                <button onClick={() => { setView('monthly'); setWeek(0); }} className={`px-5 py-2 text-xs md:text-sm rounded-xl font-bold transition ${view === 'monthly' ? 'btn-gradient text-white shadow-lg' : 'glass-card text-gray-700 hover:bg-white/20'}`}>📅 Monthly</button>
-                <button onClick={() => setView('weekly')} className={`px-5 py-2 text-xs md:text-sm rounded-xl font-bold transition ${view === 'weekly' ? 'btn-gradient text-white shadow-lg' : 'glass-card text-gray-700 hover:bg-white/20'}`}>📆 Weekly</button>
-              </div>
-
-              <button onClick={() => changeMonth(1)} className="p-3 rounded-xl glass-card hover:bg-white/20 transition">
-                <svg className="w-5 h-5 text-purple-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" /></svg>
-              </button>
-            </div>
-
-            {view === 'weekly' && (
-              <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-                {weeks.map((w,i) => <button key={i} onClick={() => setWeek(i)} className={`px-4 py-2 text-xs md:text-sm rounded-xl font-bold whitespace-nowrap transition ${week === i ? 'btn-gradient text-white shadow-lg' : 'glass-card text-gray-700 hover:bg-white/20'}`}>Week {i+1} ({w[0]}–{w[w.length - 1]})</button>)}
-              </div>
-            )}
-
-            <div className="flex flex-col md:flex-row gap-3">
-              <input type="text" placeholder="🔍 Search student..." value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 px-4 py-3 text-xs md:text-sm border-2 border-purple-200 rounded-xl focus:border-purple-500 outline-none font-medium bg-white/50 focus:bg-white transition" />
-              <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className="px-4 py-3 text-xs md:text-sm border-2 border-purple-200 rounded-xl focus:border-purple-500 outline-none font-bold bg-white/50">
-                {classes.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <button onClick={exportCSV} className="px-5 py-3 text-xs md:text-sm btn-success text-white rounded-xl font-bold shadow-lg">📥 Export CSV</button>
-            </div>
+          {/* Toggle button - always visible */}
+          <div className="fixed top-4 right-4 z-50">
+            <button 
+              onClick={() => setShowControls(!showControls)} 
+              className="p-3 btn-gradient text-white rounded-xl font-bold shadow-2xl hover:scale-105 transition-transform"
+              title={showControls ? "Hide Controls" : "Show Controls"}
+            >
+              {showControls ? '👁️ Hide' : '👁️‍🗨️ Show'}
+            </button>
           </div>
 
-          <div className="glass-effect rounded-3xl shadow-2xl overflow-hidden animate-in">
-            <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 'calc(100vh - 320px)' }}>
+          {/* Collapsible Controls Section */}
+          {showControls && (
+            <div className="glass-effect rounded-3xl shadow-2xl p-5 md:p-8 mb-6 animate-in">
+              <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-6">
+                <div>
+                  <h1 className="text-2xl md:text-4xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent mb-2">📊 Attendance Register</h1>
+                  <p className="text-xs md:text-sm text-gray-600 font-medium">{name} {yr} • {filtered.length} students • {workingDays} working days</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={() => openDialog('student')} className="px-4 py-2.5 text-xs md:text-sm btn-gradient text-white rounded-xl font-semibold shadow-lg">➕ Add Student</button>
+                  <button onClick={() => openDialog('upload')} className="px-4 py-2.5 text-xs md:text-sm bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-semibold shadow-lg hover:shadow-blue-500/50 transition">📤 Upload</button>
+                  <button onClick={downloadSample} className="px-4 py-2.5 text-xs md:text-sm bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl font-semibold shadow-lg hover:shadow-purple-500/50 transition">📥 Sample</button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between mb-6">
+                <button onClick={() => changeMonth(-1)} className="p-3 rounded-xl glass-card hover:bg-white/20 transition">
+                  <svg className="w-5 h-5 text-purple-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" /></svg>
+                </button>
+
+                <div className="flex gap-3">
+                  <button onClick={() => { setView('monthly'); setWeek(0); }} className={`px-5 py-2 text-xs md:text-sm rounded-xl font-bold transition ${view === 'monthly' ? 'btn-gradient text-white shadow-lg' : 'glass-card text-gray-700 hover:bg-white/20'}`}>📅 Monthly</button>
+                  <button onClick={() => setView('weekly')} className={`px-5 py-2 text-xs md:text-sm rounded-xl font-bold transition ${view === 'weekly' ? 'btn-gradient text-white shadow-lg' : 'glass-card text-gray-700 hover:bg-white/20'}`}>📆 Weekly</button>
+                </div>
+
+                <button onClick={() => changeMonth(1)} className="p-3 rounded-xl glass-card hover:bg-white/20 transition">
+                  <svg className="w-5 h-5 text-purple-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" /></svg>
+                </button>
+              </div>
+
+              {view === 'weekly' && (
+                <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+                  {weeks.map((w,i) => <button key={i} onClick={() => setWeek(i)} className={`px-4 py-2 text-xs md:text-sm rounded-xl font-bold whitespace-nowrap transition ${week === i ? 'btn-gradient text-white shadow-lg' : 'glass-card text-gray-700 hover:bg-white/20'}`}>Week {i+1} ({w[0]}–{w[w.length - 1]})</button>)}
+                </div>
+              )}
+
+              <div className="flex flex-col md:flex-row gap-3">
+                <input type="text" placeholder="🔍 Search student..." value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 px-4 py-3 text-xs md:text-sm border-2 border-purple-200 rounded-xl focus:border-purple-500 outline-none font-medium bg-white/50 focus:bg-white transition" />
+                <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className="px-4 py-3 text-xs md:text-sm border-2 border-purple-200 rounded-xl focus:border-purple-500 outline-none font-bold bg-white/50">
+                  {classes.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <button onClick={exportCSV} className="px-5 py-3 text-xs md:text-sm btn-success text-white rounded-xl font-bold shadow-lg">📥 Export CSV</button>
+              </div>
+            </div>
+          )}
+
+          <div className="glass-effect rounded-3xl shadow-2xl overflow-hidden animate-in" style={{ marginTop: showControls ? '0' : '60px' }}>
+            <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: showControls ? 'calc(100vh - 320px)' : 'calc(100vh - 100px)' }}>
               <table className="min-w-full border-collapse text-xs md:text-sm">
                 <thead className="sticky top-0 bg-gradient-to-r from-purple-600 to-pink-600 z-20">
                   <tr>

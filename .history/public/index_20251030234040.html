@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attendance Register</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        .unacademy-green {
+            background: linear-gradient(135deg, #08BD80 0%, #06A86D 100%);
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50">
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+        const API_BASE = 'http://109.106.255.78:5300/api';
+
+        const AttendanceRegister = () => {
+            const [students, setStudents] = useState([]);
+            const [attendance, setAttendance] = useState({});
+            const [holidays, setHolidays] = useState([]);
+            const [month, setMonth] = useState(() => {
+                const d = new Date();
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            });
+            const [loading, setLoading] = useState(false);
+            const [file, setFile] = useState(null);
+            const [search, setSearch] = useState('');
+            const [classFilter, setClassFilter] = useState('All');
+            const [showDialog, setShowDialog] = useState(false);
+            const [dialogType, setDialogType] = useState('');
+            const [selDate, setSelDate] = useState('');
+            const [holidayForm, setHolidayForm] = useState({ name: '', reason: '' });
+            const [studentForm, setStudentForm] = useState({ name: '', rollNumber: '', phone: '', class: '', rfid: '' });
+            const [view, setView] = useState('monthly');
+            const [week, setWeek] = useState(0);
+            const [currentPage, setCurrentPage] = useState('table');
+
+            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+            const toDateKey = (d) => {
+                if (!d) return '';
+                const dt = d instanceof Date ? d : new Date(d);
+                return dt.toLocaleDateString('en-CA');
+            };
+
+            const { yr, mon, name, days } = useMemo(() => {
+                const [y, m] = month.split('-').map(Number);
+                return { yr: y, mon: m, name: monthNames[m - 1], days: new Date(y, m, 0).getDate() };
+            }, [month]);
+
+            const weeks = useMemo(() => {
+                const w = [];
+                let curr = [];
+                for (let d = 1; d <= days; d++) {
+                    const dt = new Date(yr, mon - 1, d);
+                    if (dt.getDay() === 0 && curr.length > 0) { w.push([...curr]); curr = []; }
+                    if (dt.getDay() !== 0) curr.push(d);
+                }
+                if (curr.length > 0) w.push(curr);
+                return w;
+            }, [yr, mon, days]);
+
+            const displayDays = useMemo(() => {
+                if (view === 'weekly' && weeks[week]) return weeks[week];
+                return Array.from({ length: days }, (_, i) => i + 1).filter(d => new Date(yr, mon - 1, d).getDay() !== 0);
+            }, [view, week, days, yr, mon, weeks]);
+
+            const workingDays = useMemo(() => {
+                let c = 0;
+                const hDates = holidays.map(h => h.date);
+                for (let d = 1; d <= days; d++) {
+                    const dt = new Date(yr, mon - 1, d);
+                    const ds = toDateKey(dt);
+                    if (dt.getDay() !== 0 && !hDates.includes(ds)) c++;
+                }
+                return c;
+            }, [days, yr, mon, holidays]);
+
+            const classes = useMemo(() => ['All', ...new Set(students.map(s => s.class))], [students]);
+
+            useEffect(() => { loadData(); }, [month]);
+
+            const loadData = async () => {
+                setLoading(true);
+                try {
+                    const sr = await fetch(`${API_BASE}/students`);
+                    if (sr.ok) setStudents(await sr.json());
+
+                    const start = `${yr}-${String(mon).padStart(2, '0')}-01`;
+                    const end = `${yr}-${String(mon).padStart(2, '0')}-${String(days).padStart(2, '0')}`;
+                    const ar = await fetch(`${API_BASE}/attendance/range?start=${start}&end=${end}`);
+                    if (ar.ok) {
+                        const res = await ar.json();
+                        const att = (res.attendance || []).sort((a, b) => new Date(a.date) - new Date(b.date));
+                        const hol = res.holidays || [];
+                        const proc = {};
+                        att.forEach(r => {
+                            const u = r.userId?.toString() || '';
+                            if (!u) return;
+                            const d = toDateKey(r.date);
+                            if (!d) return;
+                            if (!proc[u]) proc[u] = {};
+                            if (!proc[u][d]) proc[u][d] = [];
+                            proc[u][d].push({ status: 'P', checkInTime: r.checkInTime, checkOutTime: r.checkOutTime, scanType: r.scanType || 'qr' });
+                        });
+                        setAttendance(proc);
+                        setHolidays(hol);
+                    }
+                } catch (e) {
+                    notify(`Error: ${e.message}`, 1);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const upload = async () => {
+                if (!file) return notify('Select file', 1);
+                const fd = new FormData();
+                fd.append('studentFile', file);
+                try {
+                    setLoading(true);
+                    const r = await fetch(`${API_BASE}/import-students`, { method: 'POST', body: fd });
+                    if (r.ok) {
+                        const d = await r.json();
+                        notify(`${d.count} students imported`);
+                        setFile(null);
+                        setShowDialog(false);
+                        loadData();
+                    } else {
+                        notify('Upload failed', 1);
+                    }
+                } catch (e) {
+                    notify(`Error: ${e.message}`, 1);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const downloadSample = () => {
+                const csv = 'S.N,Name,Roll number,Mobile,Class,RFID,Qr link\n1,Rahul Kumar,R2024001,9876543210,IIT JEE 2026,RFID001,https://example.com/qr?data=%7B%22roll_number%22%3A%22R2024001%22%7D';
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'student_sample.csv';
+                a.click();
+                URL.revokeObjectURL(url);
+                notify('Sample downloaded');
+            };
+
+            const addStudent = async () => {
+                if (!studentForm.name.trim() || !studentForm.rollNumber.trim()) return notify('Enter name and roll number', 1);
+                try {
+                    const r = await fetch(`${API_BASE}/students`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(studentForm)
+                    });
+                    if (r.ok) {
+                        notify('Student added');
+                        loadData();
+                        setShowDialog(false);
+                        setStudentForm({ name: '', rollNumber: '', phone: '', class: '', rfid: '' });
+                    }
+                } catch (e) {
+                    notify(`Error: ${e.message}`, 1);
+                }
+            };
+
+            const addHoliday = async () => {
+                if (!holidayForm.name.trim()) return notify('Enter holiday name', 1);
+                try {
+                    const r = await fetch(`${API_BASE}/holidays`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ date: selDate, name: holidayForm.name, reason: holidayForm.reason })
+                    });
+                    if (r.ok) {
+                        notify('Holiday added');
+                        loadData();
+                        setShowDialog(false);
+                        setHolidayForm({ name: '', reason: '' });
+                    }
+                } catch (e) {
+                    notify(`Error: ${e.message}`, 1);
+                }
+            };
+
+            const exportCSV = () => {
+                let csv = 'S.No,Name,Roll,Class,Phone,';
+                displayDays.forEach(d => csv += `${d},`);
+                csv += 'Present,Absent,Working Days,Percentage\n';
+                filtered.forEach((s, i) => {
+                    const ua = attendance[s.userId] || {};
+                    csv += `${i + 1},${s.name},${s.rollNumber},${s.class},${s.phone},`;
+                    let p = 0, w = 0;
+                    displayDays.forEach(d => {
+                        const dt = new Date(yr, mon - 1, d);
+                        const ds = toDateKey(dt);
+                        const h = getHol(ds);
+                        if (!h) {
+                            w++;
+                            const has = ua[ds]?.length > 0;
+                            csv += `${has ? 'P' : 'A'},`;
+                            if (has) p++;
+                        } else {
+                            csv += 'H,';
+                        }
+                    });
+                    const pct = w > 0 ? ((p / w) * 100).toFixed(1) : '0.0';
+                    csv += `${p},${w - p},${w},${pct}%\n`;
+                });
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Attendance_${view === 'weekly' ? `Week${week + 1}_` : ''}${name}_${yr}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+                notify('CSV exported');
+            };
+
+            const notify = (msg, err = 0) => {
+                const snack = document.createElement('div');
+                snack.className = `fixed bottom-4 right-4 px-5 py-3 rounded-lg shadow-xl text-white text-sm font-medium z-50 ${err ? 'bg-red-500' : 'bg-green-500'}`;
+                snack.textContent = msg;
+                document.body.appendChild(snack);
+                setTimeout(() => snack.remove(), 3000);
+            };
+
+            const changeMonth = (dir) => {
+                const [y, m] = month.split('-').map(Number);
+                const nd = new Date(y, m - 1 + dir, 1);
+                setMonth(`${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, '0')}`);
+                setWeek(0);
+            };
+
+            const fmt = (iso) => {
+                if (!iso) return '--';
+                const d = new Date(iso);
+                const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+                return local.toTimeString().substring(0, 5);
+            };
+
+            const getHol = (ds) => holidays.find(h => h.date === ds) || null;
+
+            const filtered = useMemo(() => {
+                let f = students;
+                if (classFilter !== 'All') f = f.filter(s => s.class === classFilter);
+                if (search.trim()) {
+                    const q = search.toLowerCase();
+                    f = f.filter(s => (s.name || '').toLowerCase().includes(q) || (s.rollNumber || '').toLowerCase().includes(q) || (s.userId || '').toString().toLowerCase().includes(q));
+                }
+                return f;
+            }, [students, search, classFilter]);
+
+            const openDialog = (type) => {
+                setDialogType(type);
+                setShowDialog(true);
+            };
+
+            const TableView = () => (
+                <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="w-full border-collapse">
+                            <thead>
+                                <tr className="bg-gradient-to-r from-green-600 to-green-700 text-white">
+                                    <th className="px-6 py-4 text-left text-sm font-bold border-r border-green-500">S.No</th>
+                                    <th className="px-6 py-4 text-left text-sm font-bold border-r border-green-500">Name</th>
+                                    <th className="px-6 py-4 text-left text-sm font-bold border-r border-green-500">Roll Number</th>
+                                    <th className="px-6 py-4 text-left text-sm font-bold border-r border-green-500">Class</th>
+                                    <th className="px-6 py-4 text-left text-sm font-bold border-r border-green-500">Phone</th>
+                                    <th className="px-6 py-4 text-center text-sm font-bold border-r border-green-500">Present</th>
+                                    <th className="px-6 py-4 text-center text-sm font-bold border-r border-green-500">Absent</th>
+                                    <th className="px-6 py-4 text-center text-sm font-bold">Attendance %</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filtered.map((s, i) => {
+                                    const ua = attendance[s.userId] || {};
+                                    let p = 0, w = 0;
+                                    displayDays.forEach(d => {
+                                        const dt = new Date(yr, mon - 1, d);
+                                        const ds = toDateKey(dt);
+                                        if (!getHol(ds)) { w++; if (ua[ds]?.length > 0) p++; }
+                                    });
+                                    const pct = w > 0 ? ((p / w) * 100).toFixed(1) : '0';
+                                    return (
+                                        <tr key={s.userId} className="border-b border-gray-200 hover:bg-gray-50 transition-colors">
+                                            <td className="px-6 py-4 text-sm text-gray-700 border-r border-gray-200 font-medium">{i + 1}</td>
+                                            <td className="px-6 py-4 text-sm text-gray-800 border-r border-gray-200 font-semibold">{s.name}</td>
+                                            <td className="px-6 py-4 text-sm text-gray-700 border-r border-gray-200">{s.rollNumber}</td>
+                                            <td className="px-6 py-4 text-sm text-gray-700 border-r border-gray-200">{s.class}</td>
+                                            <td className="px-6 py-4 text-sm text-gray-700 border-r border-gray-200">{s.phone}</td>
+                                            <td className="px-6 py-4 text-center border-r border-gray-200">
+                                                <span className="inline-block px-3 py-1 bg-green-100 text-green-700 rounded-lg font-bold text-sm">{p}</span>
+                                            </td>
+                                            <td className="px-6 py-4 text-center border-r border-gray-200">
+                                                <span className="inline-block px-3 py-1 bg-red-100 text-red-700 rounded-lg font-bold text-sm">{w - p}</span>
+                                            </td>
+                                            <td className="px-6 py-4 text-center">
+                                                <span className={`inline-block px-4 py-1 rounded-lg font-bold text-sm ${pct >= 75 ? 'bg-green-100 text-green-700' : pct >= 50 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                                                    {pct}%
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+
+            const RegisterView = () => (
+                <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                    <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 'calc(100vh - 280px)' }}>
+                        <table className="min-w-full border-collapse">
+                            <thead className="sticky top-0 bg-gray-50 border-b-2 border-gray-200 z-20">
+                                <tr>
+                                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 w-16 sticky left-0 bg-gray-50 z-30 border-r-2 border-gray-200">#</th>
+                                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 min-w-[200px] sticky left-16 bg-gray-50 z-30 border-r-2 border-gray-200">Student</th>
+                                    {displayDays.map(d => {
+                                        const dt = new Date(yr, mon - 1, d);
+                                        const hol = getHol(toDateKey(dt));
+                                        const today = toDateKey(dt) === toDateKey(new Date());
+                                        const dn = ['S', 'M', 'T', 'W', 'T', 'F', 'S'][dt.getDay()];
+                                        return (
+                                            <th key={d} onClick={() => {
+                                                const ds = toDateKey(dt);
+                                                setSelDate(ds);
+                                                const h = getHol(ds);
+                                                if (h) {
+                                                    alert(`Holiday: ${h.name}\n${h.reason || ''}`);
+                                                } else {
+                                                    setHolidayForm({ name: '', reason: '' });
+                                                    openDialog('holiday');
+                                                }
+                                            }} className={`px-3 py-4 text-center text-xs cursor-pointer transition ${today ? 'bg-green-100 font-bold' : hol ? 'bg-purple-100' : 'hover:bg-gray-100'}`}>
+                                                <div className="font-bold">{d}</div>
+                                                <div className="text-[10px] text-gray-500">{dn}</div>
+                                                {hol && <div className="text-[9px] text-purple-600 font-bold mt-1">{hol.name.substring(0, 5)}</div>}
+                                            </th>
+                                        );
+                                    })}
+                                    <th className="px-4 py-4 text-center text-xs font-bold text-green-700 bg-green-50">Present</th>
+                                    <th className="px-4 py-4 text-center text-xs font-bold text-red-700 bg-red-50">Absent</th>
+                                    <th className="px-4 py-4 text-center text-xs font-bold text-blue-700 bg-blue-50">%</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filtered.map((s, i) => {
+                                    const ua = attendance[s.userId] || {};
+                                    let p = 0, w = 0;
+                                    displayDays.forEach(d => {
+                                        const dt = new Date(yr, mon - 1, d);
+                                        const ds = toDateKey(dt);
+                                        if (!getHol(ds)) { w++; if (ua[ds]?.length > 0) p++; }
+                                    });
+                                    const pct = w > 0 ? ((p / w) * 100).toFixed(1) : '0';
+                                    return (
+                                        <tr key={s.userId} className="border-b border-gray-100 hover:bg-gray-50 transition">
+                                            <td className="px-4 py-3 text-sm text-gray-600 font-medium sticky left-0 bg-white z-10 border-r-2 border-gray-100">{i + 1}</td>
+                                            <td className="px-4 py-3 sticky left-16 bg-white z-10 border-r-2 border-gray-100">
+                                                <div className="font-bold text-gray-800">{s.name}</div>
+                                                <div className="text-xs text-gray-500">{s.rollNumber} • {s.class}</div>
+                                            </td>
+                                            {displayDays.map(d => {
+                                                const dt = new Date(yr, mon - 1, d);
+                                                const ds = toDateKey(dt);
+                                                const hol = getHol(ds);
+                                                const recs = ua[ds] || [];
+                                                const firstRec = recs[0];
+
+                                                if (hol) {
+                                                    return (
+                                                        <td key={d} className="text-center px-2 py-3">
+                                                            <div className="w-20 h-16 mx-auto bg-purple-100 border-2 border-purple-300 rounded-lg flex items-center justify-center text-sm font-bold text-purple-600">H</div>
+                                                        </td>
+                                                    );
+                                                }
+                                                if (recs.length === 0) {
+                                                    return (
+                                                        <td key={d} className="text-center px-2 py-3">
+                                                            <div className="w-20 h-16 mx-auto bg-red-100 border-2 border-red-300 rounded-lg flex items-center justify-center text-sm font-bold text-red-600">A</div>
+                                                        </td>
+                                                    );
+                                                }
+                                                return (
+                                                    <td key={d} className="text-center px-2 py-3">
+                                                        <div className="w-24 h-20 mx-auto bg-green-50 border border-green-300 rounded-xl shadow-sm flex flex-col justify-center items-center space-y-1 hover:shadow-md transition-all duration-200">
+                                                            <div className="flex flex-col items-center">
+                                                                <span className="text-[10px] text-gray-600 font-semibold uppercase tracking-wide">In</span>
+                                                                <span className="text-sm font-bold text-green-700">{fmt(firstRec.checkInTime)}</span>
+                                                            </div>
+                                                            <div className="h-px w-8 bg-green-200" />
+                                                            <div className="flex flex-col items-center">
+                                                                <span className="text-[10px] text-gray-600 font-semibold uppercase tracking-wide">Out</span>
+                                                                <span className="text-sm font-bold text-green-700">{fmt(firstRec.checkOutTime)}</span>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                );
+                                            })}
+                                            <td className="text-center px-4 py-3 text-sm font-bold text-green-700">{p}</td>
+                                            <td className="text-center px-4 py-3 text-sm font-bold text-red-700">{w - p}</td>
+                                            <td className="text-center px-4 py-3 text-sm font-bold">
+                                                <span className={`px-3 py-1 rounded-lg ${pct >= 75 ? 'bg-green-100 text-green-700' : pct >= 50 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                                                    {pct}%
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+
+            return (
+                <div className="min-h-screen p-6">
+                    <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
+                        <div className="flex items-center justify-between mb-6">
+                            <div>
+                                <h1 className="text-3xl font-bold text-gray-800 mb-1">📋 Attendance Register</h1>
+                                <p className="text-gray-500">{name} {yr} • {filtered.length} students • {workingDays} working days</p>
+                            </div>
+                            <div className="flex gap-3">
+                                <button onClick={() => openDialog('student')} className="px-5 py-2.5 unacademy-green text-white rounded-lg font-semibold hover:shadow-lg transition text-sm">
+                                    ➕ Add Student
+                                </button>
+                                <button onClick={() => openDialog('upload')} className="px-5 py-2.5 bg-blue-500 text-white rounded-lg font-semibold hover:shadow-lg transition text-sm">
+                                    📤 Upload
+                                </button>
+                                <button onClick={downloadSample} className="px-5 py-2.5 bg-purple-500 text-white rounded-lg font-semibold hover:shadow-lg transition text-sm">
+                                    📥 Sample
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center justify-center mb-6">
+                            <div className="bg-gray-100 rounded-lg p-1 inline-flex gap-1">
+                                <button onClick={() => setCurrentPage('table')} className={`px-6 py-2 rounded-lg font-semibold transition text-sm ${currentPage === 'table' ? 'bg-white text-gray-800 shadow' : 'text-gray-600 hover:text-gray-800'}`}>
+                                    📊 Table View
+                                </button>
+                                <button onClick={() => setCurrentPage('register')} className={`px-6 py-2 rounded-lg font-semibold transition text-sm ${currentPage === 'register' ? 'bg-white text-gray-800 shadow' : 'text-gray-600 hover:text-gray-800'}`}>
+                                    📅 Register View
+                                </button>
+                            </div>
+                        </div>
+
+                        {currentPage === 'register' && (
+                            <>
+                                <div className="flex items-center justify-between mb-6">
+                                    <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-gray-100 rounded-lg transition">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                        </svg>
+                                    </button>
+
+                                    <div className="flex gap-3 items-center">
+                                        <button onClick={() => { setView('monthly'); setWeek(0); }} className={`px-5 py-2 rounded-lg font-semibold transition text-sm ${view === 'monthly' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                                            📅 Monthly
+                                        </button>
+                                        <button onClick={() => setView('weekly')} className={`px-5 py-2 rounded-lg font-semibold transition text-sm ${view === 'weekly' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                                            📆 Weekly
+                                        </button>
+                                    </div>
+
+                                    <button onClick={() => changeMonth(1)} className="p-2 hover:bg-gray-100 rounded-lg transition">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                        </svg>
+                                    </button>
+                                </div>
+
+                                {view === 'weekly' && (
+                                    <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+                                        {weeks.map((w, i) => (
+                                            <button key={i} onClick={() => setWeek(i)} className={`px-4 py-2 rounded-lg font-semibold whitespace-nowrap transition text-sm ${week === i ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                                                Week {i + 1} ({w[0]}–{w[w.length - 1]})
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </>
+                        )}
+
+                        <div className="flex gap-3">
+                            <input type="text" placeholder="🔍 Search student..." value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 px-4 py-2.5 border-2 border-gray-200 rounded-lg focus:border-green-500 outline-none text-sm" />
+                            <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className="px-5 py-2.5 border-2 border-gray-200 rounded-lg focus:border-green-500 outline-none font-medium text-sm">
+                                {classes.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                            <button onClick={exportCSV} className="px-6 py-2.5 bg-green-600 text-white rounded-lg font-semibold hover:shadow-lg transition text-sm">
+                                📥 Export CSV
+                            </button>
+                        </div>
+                    </div>
+
+                    {currentPage === 'table' ? <TableView /> : <RegisterView />}
+
+                    {showDialog && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowDialog(false)}>
+                            <div className="bg-white rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                                {dialogType === 'student' && (
+                                    <>
+                                        <h3 className="text-2xl font-bold mb-6 text-gray-800">➕ Add New Student</h3>
+                                        <div className="space-y-4">
+                                            <input type="text" placeholder="Name" value={studentForm.name} onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })} className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 outline-none" />
+                                            <input type="text" placeholder="Roll Number" value={studentForm.rollNumber} onChange={(e) => setStudentForm({ ...studentForm, rollNumber: e.target.value })} className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 outline-none" />
+                                            <input type="text" placeholder="Phone" value={studentForm.phone} onChange={(e) => setStudentForm({ ...studentForm, phone: e.target.value })} className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 outline-none" />
+                                            <input type="text" placeholder="Class" value={studentForm.class} onChange={(e) => setStudentForm({ ...studentForm, class: e.target.value })} className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 outline-none" />
+                                            <input type="text" placeholder="RFID (Optional)" value={studentForm.rfid} onChange={(e) => setStudentForm({ ...studentForm, rfid: e.target.value })} className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 outline-none" />
+                                        </div>
+                                        <div className="flex gap-3 mt-6">
+                                            <button onClick={() => setShowDialog(false)} className="flex-1 px-5 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 font-semibold">Cancel</button>
+                                            <button onClick={addStudent} className="flex-1 px-5 py-3 unacademy-green text-white rounded-xl hover:shadow-xl font-semibold">Add Student</button>
+                                        </div>
+                                    </>
+                                )}
+
+                                {dialogType === 'upload' && (
+                                    <>
+                                        <h3 className="text-2xl font-bold mb-6 text-gray-800">📤 Upload Students</h3>
+                                        <div className="border-2 border-dashed border-gray-300 rounded-2xl p-8 text-center hover:border-green-400 transition bg-gray-50 mb-4">
+                                            <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => setFile(e.target.files[0])} className="hidden" id="file-upload" />
+                                            <label htmlFor="file-upload" className="cursor-pointer">
+                                                <div className="text-5xl mb-3">📄</div>
+                                                <div className="text-base font-bold text-gray-700">{file ? file.name : 'Click to select file'}</div>
+                                                <div className="text-sm text-gray-500 mt-1">Excel or CSV format</div>
+                                            </label>
+                                        </div>
+                                        <div className="flex gap-3">
+                                            <button onClick={() => setShowDialog(false)} className="flex-1 px-5 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 font-semibold">Cancel</button>
+                                            <button onClick={upload} disabled={!file || loading} className="flex-1 px-5 py-3 unacademy-green text-white rounded-xl hover:shadow-xl disabled:bg-gray-300 font-semibold">
+                                                {loading ? '⏳ Uploading...' : '📤 Upload'}
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+
+                                {dialogType === 'holiday' && (
+                                    <>
+                                        <h3 className="text-2xl font-bold mb-6 text-gray-800">🎉 Add Holiday</h3>
+                                        <div className="space-y-4">
+                                            <div>
+                                                <label className="block text-sm font-semibold text-gray-700 mb-2">Date</label>
+                                                <input type="text" value={selDate} readOnly className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl font-medium" />
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-semibold text-gray-700 mb-2">Holiday Name</label>
+                                                <input type="text" value={holidayForm.name} onChange={(e) => setHolidayForm({ ...holidayForm, name: e.target.value })} placeholder="e.g., Republic Day" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 outline-none" />
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-semibold text-gray-700 mb-2">Reason (Optional)</label>
+                                                <textarea value={holidayForm.reason} onChange={(e) => setHolidayForm({ ...holidayForm, reason: e.target.value })} placeholder="Reason for holiday..." className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 outline-none resize-none" rows={3}></textarea>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-3 mt-6">
+                                            <button onClick={() => setShowDialog(false)} className="flex-1 px-5 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 font-semibold">Cancel</button>
+                                            <button onClick={addHoliday} className="flex-1 px-5 py-3 unacademy-green text-white rounded-xl hover:shadow-xl font-semibold">Add Holiday</button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        ReactDOM.render(<AttendanceRegister />, document.getElementById('root'));
+    </script>
+</body>
+
+</html>

@@ -445,7 +445,7 @@ app.post('/api/attendance/scan', async (req, res) => {
         message: `Check-out successful via ${scanType.toUpperCase()}`,
         action,
         student: student.name,
-        class: student.class,
+        c
         rollNumber: student.rollNumber,
         rfidNumber: student.rfidNumber || 'Not assigned',
         userId: student.userId,
