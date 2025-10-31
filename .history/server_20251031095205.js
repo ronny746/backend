@@ -459,7 +459,7 @@ app.post('/api/attendance/scan', async (req, res) => {
       userId: student.userId.toString(),
       studentName: student.name,
       checkInTime: now,
-      class: student.class,
+       class: student.class,
       date: today,
       status: 'checked-in',
       scanType
@@ -472,7 +472,6 @@ app.post('/api/attendance/scan', async (req, res) => {
       message: `Check-in successful via ${scanType.toUpperCase()}`,
       action,
       student: student.name,
-      class: student.class,
       rollNumber: student.rollNumber,
       rfidNumber: student.rfidNumber || 'Not assigned',
       userId: student.userId,
