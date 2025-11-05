@@ -18,7 +18,7 @@ app.use('/uploads', express.static('uploads'));
 
 
 // MongoDB Connection
-mongoose.connect('mongodb://localhost:27017/unacademy_db', {
+mongoose.connect('mongodb://localhost:27017/student_attendance', {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 });
@@ -280,7 +280,7 @@ app.post('/api/students', async (req, res) => {
 
 //     // Try to find student by roll number first (userId)
 //     let student = await Student.findOne({ userId: studentUserId.toString() });
-
+    
 //     // If not found by userId, try RFID number
 //     if (!student) {
 //       student = await Student.findOne({ rfidNumber: studentUserId.toString() });
@@ -434,53 +434,53 @@ app.post('/api/attendance/scan', async (req, res) => {
 
     // Alternate automatically between check-in/check-out
     if (lastAttendance && lastAttendance.status === 'checked-in') {
-      lastAttendance.checkOutTime = now;
-      lastAttendance.status = 'checked-out';
-      lastAttendance.scanType = scanType;
-      await lastAttendance.save();
-      action = 'check-out';
+  lastAttendance.checkOutTime = now;
+  lastAttendance.status = 'checked-out';
+  lastAttendance.scanType = scanType;
+  await lastAttendance.save();
+  action = 'check-out';
 
-      console.log(`Check-out successful for: ${student.name}`);
-      return res.json({
-        message: `Check-out successful via ${scanType.toUpperCase()}`,
-        action,
-        student: student.name,
-        class: student.class,
-        rollNumber: student.rollNumber,
-        rfidNumber: student.rfidNumber || 'Not assigned',
-        userId: student.userId,
-        phone: student.phone || 'Not available', // ✅ added line
-        scanType,
-        time: now
-      });
-    }
+  console.log(`Check-out successful for: ${student.name}`);
+  return res.json({
+    message: `Check-out successful via ${scanType.toUpperCase()}`,
+    action,
+    student: student.name,
+    class: student.class,
+    rollNumber: student.rollNumber,
+    rfidNumber: student.rfidNumber || 'Not assigned',
+    userId: student.userId,
+    phone: student.phone || 'Not available', // ✅ added line
+    scanType,
+    time: now
+  });
+}
 
-    // Always allow new check-in (even if multiple per day)
-    const attendance = new Attendance({
-      userId: student.userId.toString(),
-      studentName: student.name,
-      checkInTime: now,
-      class: student.class,
-      date: today,
-      status: 'checked-in',
-      scanType
-    });
+// Always allow new check-in (even if multiple per day)
+const attendance = new Attendance({
+  userId: student.userId.toString(),
+  studentName: student.name,
+  checkInTime: now,
+  class: student.class,
+  date: today,
+  status: 'checked-in',
+  scanType
+});
 
-    await attendance.save();
+await attendance.save();
 
-    console.log(`Check-in successful for: ${student.name}`);
-    res.json({
-      message: `Check-in successful via ${scanType.toUpperCase()}`,
-      action,
-      student: student.name,
-      class: student.class,
-      rollNumber: student.rollNumber,
-      rfidNumber: student.rfidNumber || 'Not assigned',
-      userId: student.userId,
-      phone: student.phone || 'Not available', // ✅ added line
-      scanType,
-      time: now
-    });
+console.log(`Check-in successful for: ${student.name}`);
+res.json({
+  message: `Check-in successful via ${scanType.toUpperCase()}`,
+  action,
+  student: student.name,
+  class: student.class,
+  rollNumber: student.rollNumber,
+  rfidNumber: student.rfidNumber || 'Not assigned',
+  userId: student.userId,
+  phone: student.phone || 'Not available', // ✅ added line
+  scanType,
+  time: now
+});
 
 
   } catch (error) {
@@ -587,7 +587,7 @@ app.get('/api/attendance/range', async (req, res) => {
         checkInTime: formatTimeForFlutter(record.checkInTime),
         checkOutTime: record.checkOutTime ? formatTimeForFlutter(record.checkOutTime) : null,
         isHoliday,
-        holiday: null
+        holiday:  null
       };
     });
 
@@ -610,10 +610,10 @@ app.get('/api/attendance/range', async (req, res) => {
 app.get('/api/student/:identifier', async (req, res) => {
   try {
     const identifier = req.params.identifier.toString();
-
+    
     // Try to find by userId first
     let student = await Student.findOne({ userId: identifier });
-
+    
     // If not found, try RFID
     if (!student) {
       student = await Student.findOne({ rfidNumber: identifier });
@@ -664,13 +664,13 @@ app.get('/api/attendance/report', async (req, res) => {
 app.get('/api/reports/attendance', async (req, res) => {
   try {
     const { start, end } = req.query;
-
+    
     if (!start || !end) {
       return res.status(400).json({ error: 'Start and end dates are required' });
     }
 
     const students = await Student.find().sort({ serialNumber: 1, name: 1 });
-
+    
     const attendanceRecords = await Attendance.find({
       date: { $gte: start, $lte: end }
     });
@@ -679,7 +679,7 @@ app.get('/api/reports/attendance', async (req, res) => {
     const startDate = new Date(start);
     const endDate = new Date(end);
     let workingDays = 0;
-
+    
     for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
       if (d.getDay() !== 0) {
         workingDays++;
@@ -690,7 +690,7 @@ app.get('/api/reports/attendance', async (req, res) => {
       const studentAttendance = attendanceRecords.filter(
         record => record.userId === student.userId
       );
-
+      
       const presentDays = studentAttendance.length;
       const absentDays = workingDays - presentDays;
       const percentage = workingDays > 0 ? (presentDays / workingDays * 100).toFixed(1) : '0.0';
@@ -738,7 +738,7 @@ app.post('/api/attendance/update', async (req, res) => {
 
     if (status === 'present') {
       const existingAttendance = await Attendance.findOne({ userId: userId.toString(), date });
-
+      
       if (!existingAttendance) {
         const attendance = new Attendance({
           userId: userId.toString(),
@@ -772,13 +772,13 @@ app.put('/api/student/:userId/rfid', async (req, res) => {
     }
 
     // Check if RFID already exists for another student
-    const existingRFID = await Student.findOne({
+    const existingRFID = await Student.findOne({ 
       rfidNumber: rfidNumber.toString(),
       userId: { $ne: req.params.userId }
     });
 
     if (existingRFID) {
-      return res.status(400).json({
+      return res.status(400).json({ 
         error: 'This RFID number is already assigned to another student',
         assignedTo: existingRFID.name
       });
@@ -811,8 +811,8 @@ app.post('/api/export-attendance', async (req, res) => {
     const { month, year, data } = req.body;
 
     console.log(`Export request for ${month}/${year}`);
-
-    res.json({
+    
+    res.json({ 
       message: 'Export completed successfully',
       filename: `attendance_${month}_${year}.xlsx`
     });
