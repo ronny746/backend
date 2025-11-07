@@ -111,134 +111,19 @@ function formatTimeForFlutter(date) {
 
 
 
-// ✅ helper to preserve leading zeros
-function safeCell(value) {
-  if (value === undefined || value === null) return "";
-  return String(value).trim();
-}
-
-// ✅ helper for normal strings
+// Routes
 function asString(value) {
   if (value === undefined || value === null) return "";
+  return value.toString().trim();
+}
+function safeCell(value) {
+  if (value === undefined || value === null) return "";
+  // If excel converted “0002281036” into 2281036, recover it:
   return String(value).trim();
 }
 
-app.post('/api/import-students', upload.single('studentFile'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
-    }
+// 1. Upload Excel/CSV file and import students - UPDATED WITH RFID SUPPORT
 
-    const filePath = req.file.path;
-
-    const workbook = xlsx.readFile(filePath, {
-      cellDates: false,   // keep as text
-      raw: false          // ✅ prevents losing leading zeros
-    });
-
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
-
-    const data = xlsx.utils.sheet_to_json(worksheet, {
-      raw: false,
-      defval: ""          // ✅ empty cells stay empty (not undefined)
-    });
-
-    const students = [];
-
-    for (const row of data) {
-      const rollNumber = safeCell(
-        row['Roll number'] ||
-        row.rollNumber ||
-        row.userId ||
-        row.UserId
-      );
-
-      const name = asString(
-        row.Name ||
-        row.name ||
-        row.student_name ||
-        row['Student Name']
-      );
-
-      const mobile = safeCell(
-        row.Mobile ||
-        row.mobile ||
-        row.phone ||
-        row.Phone
-      );
-
-      const qrLink = asString(
-        row['Qr link'] ||
-        row.qrLink ||
-        row.qr_link
-      );
-
-      const serialNumber = row['S.N'] || row.sn || row.serialNumber || 0;
-
-      const rfidNumber = safeCell(
-        row.RFID ||
-        row.rfid ||
-        row.rfid_number ||
-        row['RFID Number']
-      );
-
-      const className = asString(
-        row.class ||
-        row.Class ||
-        row.className ||
-        row['Class']
-      );
-
-      const email = asString(row.email || row.Email);
-
-      const student = {
-        userId: rollNumber,
-        name,
-        rollNumber,
-        rfidNumber,
-        class: className || "Not Specified",
-        email,
-        phone: mobile,
-        qrLink,
-        serialNumber,
-        qrData: extractQRData(qrLink)
-      };
-
-      if (student.userId && student.name && student.rollNumber) {
-        students.push(student);
-      }
-    }
-
-    const result = await Promise.all(
-      students.map(async (student) => {
-        try {
-          return await Student.findOneAndUpdate(
-            { userId: student.userId },
-            student,
-            { upsert: true, new: true }
-          );
-        } catch (error) {
-          console.log("Error saving student:", student.name, error.message);
-          return null;
-        }
-      })
-    );
-
-    const successfulInserts = result.filter(r => r !== null);
-
-    res.json({
-      message: "Students imported successfully",
-      count: successfulInserts.length,
-      total: students.length,
-      students: successfulInserts
-    });
-
-  } catch (error) {
-    console.error("Import error:", error);
-    res.status(500).json({ error: "Failed to import students: " + error.message });
-  }
-});
 
 // 2. Get all students
 app.get('/api/students', async (req, res) => {

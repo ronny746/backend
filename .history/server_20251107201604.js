@@ -18,7 +18,7 @@ app.use('/uploads', express.static('uploads'));
 
 
 // MongoDB Connection
-mongoose.connect('mongodb://localhost:27017/unacadem', {
+mongoose.connect('mongodb://localhost:27017/unacademy_db', {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 });
@@ -111,18 +111,18 @@ function formatTimeForFlutter(date) {
 
 
 
-// ✅ helper to preserve leading zeros
-function safeCell(value) {
-  if (value === undefined || value === null) return "";
-  return String(value).trim();
-}
-
-// ✅ helper for normal strings
+// Routes
 function asString(value) {
   if (value === undefined || value === null) return "";
+  return value.toString().trim();
+}
+function safeCell(value) {
+  if (value === undefined || value === null) return "";
+  // If excel converted “0002281036” into 2281036, recover it:
   return String(value).trim();
 }
 
+// 1. Upload Excel/CSV file and import students - UPDATED WITH RFID SUPPORT
 app.post('/api/import-students', upload.single('studentFile'), async (req, res) => {
   try {
     if (!req.file) {
@@ -130,24 +130,29 @@ app.post('/api/import-students', upload.single('studentFile'), async (req, res) 
     }
 
     const filePath = req.file.path;
-
     const workbook = xlsx.readFile(filePath, {
-      cellDates: false,   // keep as text
-      raw: false          // ✅ prevents losing leading zeros
+      cellText: false,
+      cellDates: true
     });
 
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
 
+    // ✅ VERY IMPORTANT: use raw:false to keep strings with zeros
     const data = xlsx.utils.sheet_to_json(worksheet, {
       raw: false,
-      defval: ""          // ✅ empty cells stay empty (not undefined)
+      defval: "",               // empty cell stays empty
+      cellText: true,           // ✅ forces xlsx to treat values as text
+      cellDates: false,         // no date conversion
     });
+
 
     const students = [];
 
     for (const row of data) {
-      const rollNumber = safeCell(
+
+      // ✅ Convert values safely (keeps "00012345")
+      const rollNumber = asString(
         row['Roll number'] ||
         row.rollNumber ||
         row.userId ||
@@ -161,7 +166,7 @@ app.post('/api/import-students', upload.single('studentFile'), async (req, res) 
         row['Student Name']
       );
 
-      const mobile = safeCell(
+      const mobile = asString(
         row.Mobile ||
         row.mobile ||
         row.phone ||
@@ -176,7 +181,7 @@ app.post('/api/import-students', upload.single('studentFile'), async (req, res) 
 
       const serialNumber = row['S.N'] || row.sn || row.serialNumber || 0;
 
-      const rfidNumber = safeCell(
+      const rfidNumber = asString(
         row.RFID ||
         row.rfid ||
         row.rfid_number ||
