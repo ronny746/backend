@@ -18,7 +18,7 @@ app.use('/uploads', express.static('uploads'));
 
 
 // MongoDB Connection
-mongoose.connect('mongodb://localhost:27017/unacademy_db', {
+mongoose.connect('mongodb://localhost:27017/unacademy', {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 });
