@@ -448,7 +448,7 @@ app.post('/api/attendance/scan', async (req, res) => {
     }
 
     if (!studentUserId) {
-      return res.status(200).json({ error: 'User ID or RFID is required' });
+      return res.status(400).json({ error: 'User ID or RFID is required' });
     }
 
     // Find student
@@ -462,7 +462,7 @@ app.post('/api/attendance/scan', async (req, res) => {
     }
 
     if (!student) {
-      return res.status(200).json({
+      return res.status(404).json({
         error: 'Student not found with ID/RFID: ' + studentUserId
       });
     }
