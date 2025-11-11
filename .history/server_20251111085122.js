@@ -488,7 +488,9 @@ app.post('/api/attendance/scan', async (req, res) => {
         const minutesLeft = Math.ceil((BLOCK_TIME - diff) / 60000);
 
         return res.status(200).json({
-          message: `Please wait You can check out after ${minutesLeft} minute(s).`,
+           
+          message: `Please wait
+You can check out after ${minutesLeft} minute(s).`,
           lastAction: lastAttendance.status,
           student: student.name,
           scanType,
