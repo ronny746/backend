@@ -323,13 +323,13 @@
       };
 
       const exportCSV = () => {
-        let csv = 'S.No,Name,Roll,Class,RFID,Phone,';
+        let csv = 'S.No,Name,Roll,Class,Phone,';
         displayDays.forEach(d => csv += `${d},`);
         csv += 'Present,Absent,Working Days,Percentage\n';
 
         filtered.forEach((s, i) => {
           const ua = attendance[s.userId] || {};
-          csv += `${i + 1},${s.name},${s.rollNumber},${s.class},${s.rfidNumber},${s.phone},`;
+          csv += `${i + 1},${s.name},${s.rollNumber},${s.class},${s.phone},`;
 
           let p = 0, w = 0;
 
