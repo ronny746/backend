@@ -324,15 +324,12 @@
 
       const exportCSV = () => {
         let csv = 'S.No,Name,Roll,Class,RFID,Phone,';
-
-        // ✅ Sunday included in displayDays already — we just print everything
         displayDays.forEach(d => csv += `${d},`);
-
         csv += 'Present,Absent,Working Days,Percentage\n';
 
         filtered.forEach((s, i) => {
           const ua = attendance[s.userId] || {};
-          csv += `${i + 1},${s.name},${s.rollNumber},${s.class},${s.rfidNumber},${s.phone},`;
+          csv += `${i + 1},${s.name},${s.rollNumber},${s.class},${s.class},${s.phone},`;
 
           let p = 0, w = 0;
 
@@ -341,18 +338,16 @@
             const ds = toDateKey(dt);
             const h = getHol(ds);
 
+            // ✅ Sunday included normally
             const isSunday = dt.getDay() === 0;
 
-            if (isSunday) {
-              // ✅ Sunday is always Holiday
-              csv += 'H,';
-              return;
-            }
-
             if (!h) {
+              // treat Sunday as working day too
               w++;
+
               const has = ua[ds]?.length > 0;
               csv += `${has ? 'P' : 'A'},`;
+
               if (has) p++;
             } else {
               csv += 'H,';
