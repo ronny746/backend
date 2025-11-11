@@ -448,7 +448,7 @@ app.post('/api/attendance/scan', async (req, res) => {
     }
 
     if (!studentUserId) {
-      return res.status(400).json({ error: 'Learner Not found. Please contact admin.' });
+      return res.status(400).json({ error: 'Learner Not found Please conts' });
     }
 
     // Find student
