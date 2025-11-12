@@ -448,7 +448,7 @@
       const openDialog = (type, date = '', student = null) => { 
         setDialogType(type); 
         setSelDate(date);
-        console.log('openDialog called with type:', type, 'date:', date, 'student:', student);
+        
         if (type === 'edit-student' && student) {
           setEditingStudent({ 
             userId: student.userId, 
@@ -709,7 +709,7 @@
                       <input type="text" placeholder="Phone" value={editingStudent.phone} onChange={(e) => setEditingStudent({ ...editingStudent, phone: e.target.value })} className="w-full px-4 py-3 text-sm border-2 border-purple-200 rounded-xl focus:border-purple-500 outline-none font-medium transition" />
                       <input type="text" placeholder="Class" value={editingStudent.class} onChange={(e) => setEditingStudent({ ...editingStudent, class: e.target.value })} className="w-full px-4 py-3 text-sm border-2 border-purple-200 rounded-xl focus:border-purple-500 outline-none font-medium transition" />
                       <input type="text" placeholder="Level/Grade" value={editingStudent.level} onChange={(e) => setEditingStudent({ ...editingStudent, level: e.target.value })} className="w-full px-4 py-3 text-sm border-2 border-purple-200 rounded-xl focus:border-purple-500 outline-none font-medium transition" /> {/* New Level Field */}
-                      <input type="text" placeholder="RFID (Optional)" value={editingStudent.rfid} onChange={(e) => setEditingStudent({ ...editingStudent, rfid: e.target.value })} className="w-full px-4 py-3 text-sm border-2 border-purple-200 rounded-xl focus:border-purple-500 outline-none font-medium transition" />
+                      <input type="text" placeholder="RFID (Optional)" value={editingStudent.rfidNumber} onChange={(e) => setEditingStudent({ ...editingStudent, rfid: e.target.value })} className="w-full px-4 py-3 text-sm border-2 border-purple-200 rounded-xl focus:border-purple-500 outline-none font-medium transition" />
                     </div>
                     <div className="flex gap-3 mt-6">
                       <button onClick={() => setShowDialog(false)} className="flex-1 px-5 py-3 text-sm bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 font-bold transition">Cancel</button>
