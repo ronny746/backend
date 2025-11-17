@@ -369,7 +369,7 @@ app.put('/api/students/:userId', async (req, res) => {
     });
 
   } catch (error) {
-     console.error('Rana', error);
+     console.error('Update student error:', error);
     console.error('Update student error:', error);
     // Handle potential MongoDB validation errors (e.g., unique constraint violation)
     if (error.code === 11000) {
